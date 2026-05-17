@@ -187,4 +187,9 @@ Before week 1 of ADR-0012 §2 / §4 implementation, get a concrete price + timel
 **Owner:** TBD
 **Deadline:** Before v0.4 engineering sprint kicks off
 
-Status: **not yet contacted**
+Status: **resolved 2026-05-04 — not pursuing the commercial license at this
+time.** Decision: build author-mode (ADR-0012 §4) in-house via the CDP path;
+do not buy or vendor SingleFile. An AGPL working copy lives at `SingleFile/`
+(gitignored, never committed — AGPL is study-only per §H) for architecture
+reference only. Revisit the price-check only if the in-house CDP author-mode
+path proves materially more expensive than expected.

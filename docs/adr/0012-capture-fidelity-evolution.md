@@ -208,4 +208,27 @@ suite 15/15 green; typecheck clean.
 
 ---
 
+## Addendum (2026-05-04) — Open Q §5 resolved: build, don't buy
+
+The SingleFile commercial-license price-check (Open Q §5,
+[epic-8-followups §7](../epic-8-followups.md#7--price-check-singlefile-commercial-license))
+is **resolved without contacting the author**: we are *not* pursuing the
+commercial license at this time. §4 author-mode capture will be built
+in-house on the CDP path rather than purchased or vendored.
+
+Consequence for the §§2–4 gate: the price-check is no longer a
+prerequisite. The remaining gates for §§2–4 are purely technical —
+the manifest `"debugger"` permission, the CDP-fallback design (Open Q
+§1), and the three-tool split (§3). The earlier addendum line *"SingleFile
+commercial license price-check … is still the gate"* is superseded by
+this entry (body left intact per the no-rewrite convention).
+
+An AGPL working copy of SingleFile lives at `SingleFile/` for
+architecture study only — gitignored (`.gitignore`, alongside the other
+study-only reference clones) so the AGPL copyleft never reaches the
+MIT tree. Study the architecture; reimplement clean per §H's rule of
+thumb.
+
+---
+
 *End of ADR-0012.*

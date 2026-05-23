@@ -2,36 +2,43 @@
  * Capture-fidelity scorecard for the Chrome-extension capture path.
  *
  * Two parts:
- *  1. Structural audit — renders https://www.axios.com live and the
- *     canvas at http://localhost:3000, dumps node counts / iframe
- *     types / shadow roots / pseudo-element-bearing tags etc., one
- *     side-by-side `audit.json`.
+ *  1. Structural audit — renders the reference URL live and the canvas
+ *     at http://localhost:3000, dumps node counts / iframe types /
+ *     shadow roots / pseudo-element-bearing tags etc., side by side
+ *     in `audit.json`.
  *  2. Visual diff (E) — element-screenshots the canvas iframe with
- *     the most captured content, re-sizes Axios to match, runs
- *     pixelmatch, emits diff.png + a single "X% pixels different"
+ *     the most captured content, re-sizes the reference page to match,
+ *     runs pixelmatch, emits diff.png + a single "X% pixels different"
  *     number you can track across fidelity-work iterations.
  *
  * Prerequisites for the visual-diff half to produce a meaningful number:
  *  - The canvas dev server is running (`pnpm dev` at repo root → :3000).
- *  - An Axios capture has already been pushed onto the canvas via the
- *    extension (the script reads whatever's currently on the artboard;
- *    if nothing's there the diff is ≈100% by definition).
+ *  - A capture of the reference URL has already been pushed onto the
+ *    canvas via the extension (the script reads whatever's currently
+ *    on the artboard; if nothing matches the diff is ≈100% by definition).
  *  - The real Chrome channel is installed locally (needed to get past
- *    Cloudflare's bot wall on www.axios.com — Chromium fails the check).
+ *    Cloudflare-style bot walls — Chromium's headless fingerprint fails
+ *    that check on many sites).
  *
  * Usage:
- *  node scripts/capture-compare.mjs            # headless run
- *  HEADED=1 node scripts/capture-compare.mjs   # visible browser (solve
- *                                                Cloudflare manually if
- *                                                cookies have expired)
+ *  node scripts/capture-compare.mjs                          # default: rubychilds.com
+ *  node scripts/capture-compare.mjs https://example.com/     # custom reference URL
+ *  HEADED=1 node scripts/capture-compare.mjs <url>           # visible browser (solve
+ *                                                              Cloudflare manually if
+ *                                                              cookies have expired)
+ *
+ * The default reference is rubychilds.com — a static personal site
+ * whose content doesn't rotate, so successive scorecard runs measure
+ * fidelity change rather than article-rotation noise. Pass any URL as
+ * the first positional arg to compare against a different site.
  *
  * Outputs land in /tmp/capture-compare/:
- *  - axios-live-{viewport,fullpage}.png
- *  - canvas-{viewport,fullpage}.png
- *  - canvas-iframe.png        — element-screenshot of the captured iframe
- *  - axios-matched.png        — Axios re-rendered at the iframe's width
- *  - diff.png                 — pixelmatch output (red = changed)
- *  - audit.json               — structural metrics + diff stats
+ *  - ref-live-{viewport,fullpage}.png   — reference URL as initially loaded
+ *  - canvas-{viewport,fullpage}.png     — the canvas page (chrome + iframe)
+ *  - canvas-iframe.png                  — element-screenshot of the captured iframe
+ *  - ref-matched.png                    — reference re-rendered at the iframe's width
+ *  - diff.png                           — pixelmatch output (red = changed)
+ *  - audit.json                         — structural metrics + diff stats
  */
 
 import { chromium } from "@playwright/test";
@@ -41,6 +48,7 @@ import pixelmatch from "pixelmatch";
 
 const OUT = "/tmp/capture-compare";
 const CANVAS_URL = "http://localhost:3000/";
+const REFERENCE_URL = process.argv[2] ?? "https://rubychilds.com/";
 
 async function isCanvasReachable() {
   try {
@@ -150,15 +158,17 @@ async function run() {
   if (!(await isCanvasReachable())) {
     console.error(
       `\nCanvas not reachable at ${CANVAS_URL}.\n` +
-        `Start it with \`pnpm dev\` at the repo root, then ensure an Axios\n` +
-        `capture is loaded on the artboard before re-running.\n`,
+        `Start it with \`pnpm dev\` at the repo root, then ensure a\n` +
+        `capture of ${REFERENCE_URL} is loaded on the artboard before\n` +
+        `re-running.\n`,
     );
     process.exit(1);
   }
   // Use the real Chrome channel + realistic headers — headless Chromium's
-  // fingerprint trips Cloudflare's bot wall on www.axios.com. If `HEADED=1`
-  // is set, also launch visibly so you can solve the human-check once;
-  // the persistent profile remembers the cf_clearance cookie afterwards.
+  // fingerprint trips Cloudflare-style bot walls on news sites. If
+  // `HEADED=1` is set, also launch visibly so you can solve the human-
+  // check once; the persistent profile remembers the cf_clearance cookie
+  // afterwards.
   const browser = await chromium.launch({
     channel: "chrome",
     headless: process.env.HEADED !== "1",
@@ -172,20 +182,21 @@ async function run() {
     timezoneId: "America/Los_Angeles",
   });
 
-  // ─── Axios (live) ───────────────────────────────────────────────────
-  console.log("[axios] navigating…");
-  const axios = await context.newPage();
-  await axios.goto("https://www.axios.com/", {
+  // ─── Reference (live) ───────────────────────────────────────────────
+  console.log(`[ref] navigating to ${REFERENCE_URL}…`);
+  const refPage = await context.newPage();
+  await refPage.goto(REFERENCE_URL, {
     waitUntil: "load",
     timeout: 45_000,
   });
-  // News-site networkidle never resolves (ads/analytics keep firing) —
-  // give the hero section time to paint instead.
-  await axios.waitForTimeout(4000);
-  await axios.screenshot({ path: `${OUT}/axios-live-viewport.png`, fullPage: false });
-  await axios.screenshot({ path: `${OUT}/axios-live-fullpage.png`, fullPage: true });
-  const axiosStats = await structuralAudit(axios);
-  console.log("[axios] stats:", JSON.stringify(axiosStats, null, 2));
+  // News sites' networkidle never resolves (ads/analytics keep firing).
+  // Static sites usually settle in <1s. Universal 4s wait is safe for
+  // both.
+  await refPage.waitForTimeout(4000);
+  await refPage.screenshot({ path: `${OUT}/ref-live-viewport.png`, fullPage: false });
+  await refPage.screenshot({ path: `${OUT}/ref-live-fullpage.png`, fullPage: true });
+  const refStats = await structuralAudit(refPage);
+  console.log("[ref] stats:", JSON.stringify(refStats, null, 2));
 
   // ─── Canvas (localhost:3000) ────────────────────────────────────────
   console.log("[canvas] navigating…");
@@ -206,12 +217,12 @@ async function run() {
   // Pick the canvas iframe with the most content — empty iframe[1] is
   // a placeholder artboard; iframe[0] (or whichever has the highest
   // body-node count) holds the actual captured page. Element-screenshot
-  // it, set Axios to a matching viewport width, capture again, and run
+  // it, set the reference page to a matching viewport width, capture again, and run
   // pixelmatch to get a single "X% different" number that can be
   // tracked across fidelity iterations.
   //
   // Caveats baked in:
-  //  - GrapesJS renders inside a different iframe context than Axios
+  //  - GrapesJS renders inside a different iframe context than the source page
   //    (no scroll-triggered animations, no hydrated React state). Some
   //    diff is unavoidable even with perfect capture.
   //  - The diff is cropped to the smaller of the two screenshot
@@ -234,37 +245,54 @@ async function run() {
     if (!iframeBox || iframeBox.width < 100 || iframeBox.height < 100) {
       console.log(`[diff] iframe bbox too small (${iframeBox?.width}×${iframeBox?.height}) — skipping`);
     } else {
-      const iframeBuf = await iframeEl.screenshot();
-      const iframePng = PNG.sync.read(iframeBuf);
+      // Cap scorecard window — Chrome's Page.captureScreenshot maxes out
+      // around 16384px (DPR-scaled), so a 21,000px+ captured artboard
+      // blows up. 4000px CSS height is well above the fold and well
+      // below the limit even at DPR 2. The scorecard is about visible
+      // fidelity above the fold; full-page comparison is a different
+      // problem (would need scroll-tile-stitch on both sides).
+      const SCORECARD_MAX_HEIGHT = 4000;
+      const clipHeight = Math.min(iframeBox.height, SCORECARD_MAX_HEIGHT);
+      const clipWidth = iframeBox.width;
       console.log(
-        `[diff] canvas iframe rendered: ${iframePng.width}×${iframePng.height}px (DPR ${(iframePng.width / iframeBox.width).toFixed(1)})`,
+        `[diff] iframe natural size ${iframeBox.width}×${iframeBox.height}px; scoring window ${clipWidth}×${clipHeight}px`,
       );
 
-      // Re-size Axios to match the iframe's CSS width so any author-mode
+      const iframeBuf = await canvas.screenshot({
+        clip: {
+          x: iframeBox.x,
+          y: iframeBox.y,
+          width: clipWidth,
+          height: clipHeight,
+        },
+      });
+      const iframePng = PNG.sync.read(iframeBuf);
+
+      // Re-size the reference page to match the scoring window width so any author-mode
       // @media reflow lands at the right viewport. (Today this still
       // doesn't help — see ADR-0011 2026-05-04 addendum cascade note —
       // but the comparison is honest if we ever ship §4.)
-      const targetWidth = Math.round(iframeBox.width);
-      const targetHeight = Math.round(iframeBox.height);
-      await axios.setViewportSize({ width: targetWidth, height: targetHeight });
+      const targetWidth = Math.round(clipWidth);
+      const targetHeight = Math.round(clipHeight);
+      await refPage.setViewportSize({ width: targetWidth, height: targetHeight });
       // cf_clearance cookie from earlier in this run persists in the
       // context, so reloading shouldn't re-trigger the challenge.
-      await axios.reload({ waitUntil: "load", timeout: 45_000 });
-      await axios.waitForTimeout(3000);
-      const axiosBuf = await axios.screenshot({ fullPage: false });
-      const axiosPng = PNG.sync.read(axiosBuf);
+      await refPage.reload({ waitUntil: "load", timeout: 45_000 });
+      await refPage.waitForTimeout(3000);
+      const refBuf = await refPage.screenshot({ fullPage: false });
+      const refPng = PNG.sync.read(refBuf);
       console.log(
-        `[diff] axios re-rendered:    ${axiosPng.width}×${axiosPng.height}px`,
+        `[diff] canvas window: ${iframePng.width}×${iframePng.height}px; ref re-rendered: ${refPng.width}×${refPng.height}px`,
       );
 
       // Crop both to the common (min) rectangle. Diffing different-sized
       // PNGs would require resize machinery (sharp / canvas) we don't
       // want to pull in for this scorecard; a min-rect crop is biased
       // toward fewer diff pixels but is honest about what overlaps.
-      const w = Math.min(iframePng.width, axiosPng.width);
-      const h = Math.min(iframePng.height, axiosPng.height);
+      const w = Math.min(iframePng.width, refPng.width);
+      const h = Math.min(iframePng.height, refPng.height);
       const a = cropPng(iframePng, w, h);
-      const b = cropPng(axiosPng, w, h);
+      const b = cropPng(refPng, w, h);
       const diff = new PNG({ width: w, height: h });
       const numDiff = pixelmatch(a.data, b.data, diff.data, w, h, {
         threshold: 0.1,
@@ -274,7 +302,7 @@ async function run() {
       const pct = (numDiff / total) * 100;
       await writeFile(`${OUT}/diff.png`, PNG.sync.write(diff));
       await writeFile(`${OUT}/canvas-iframe.png`, iframeBuf);
-      await writeFile(`${OUT}/axios-matched.png`, axiosBuf);
+      await writeFile(`${OUT}/ref-matched.png`, refBuf);
 
       visualDiff = {
         widthPx: w,
@@ -293,7 +321,7 @@ async function run() {
     `${OUT}/audit.json`,
     JSON.stringify(
       {
-        axios: axiosStats,
+        reference: { url: REFERENCE_URL, ...refStats },
         canvas: canvasStats,
         canvasIframes: iframeStats,
         visualDiff,

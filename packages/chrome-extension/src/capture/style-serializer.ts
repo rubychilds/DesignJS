@@ -252,13 +252,30 @@ function normalizeMediaAttrs(clone: Element, src: Element): void {
   }
 }
 
+/**
+ * Tags where user-agent default margin/padding should be stripped
+ * rather than faithfully captured. Source `<body>` ships with 8px
+ * margin from the UA stylesheet and `<html>` may carry small
+ * defaults too; if we serialize them under Experiment A (capture from
+ * `documentElement`) they propagate as inline `margin: 8px` on the
+ * captured root, pushing the content off the artboard's top-left
+ * corner by 7-18px. Source pages don't intend body margin (it's a
+ * UA default), so suppressing it on capture is correct in practice.
+ */
+const STRIP_MARGIN_PADDING_TAGS = new Set(["HTML", "BODY"]);
+
 function buildInlineStyle(
   computed: CSSStyleDeclaration,
   parentComputed: CSSStyleDeclaration | null,
+  srcTag: string,
 ): string {
+  const stripMarginPadding = STRIP_MARGIN_PADDING_TAGS.has(srcTag);
   const parts: string[] = [];
 
   for (const prop of NON_INHERITED) {
+    if (stripMarginPadding && (prop.startsWith("margin-") || prop.startsWith("padding-"))) {
+      continue;
+    }
     const v = computed.getPropertyValue(prop);
     if (!v || v === "normal" || v === "none" || v === "auto") {
       // Keep layout-critical "auto"s (e.g. width:auto on flex children).
@@ -384,7 +401,7 @@ function stripAndInline(
   //     Experiment C in the v0.3.5 research+experiment track.
   const computed = window.getComputedStyle(src);
   const parentComputed = parentSrc ? window.getComputedStyle(parentSrc) : null;
-  const style = buildInlineStyle(computed, parentComputed);
+  const style = buildInlineStyle(computed, parentComputed, src.tagName);
   if (style && counters.mode === "computed") {
     let className = counters.styleToClass.get(style);
     if (!className) {

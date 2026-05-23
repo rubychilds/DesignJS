@@ -25,6 +25,16 @@ const TAILWIND_V4_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
  * wrapping-paragraph mode.
  */
 export const PRIMITIVE_BASE_CSS = `
+html {
+  /* Pin the canvas iframe to light color-scheme so author-CSS rules
+     inside @media (prefers-color-scheme: dark) blocks (common for
+     code-block syntax highlighting — e.g. Python docs ships both
+     light + dark Pygments stylesheets) don't fire and override the
+     captured light-theme values. Without this, the canvas iframe
+     inherits whatever the host browser prefers, which causes a
+     mismatch with what the user saw at capture time. */
+  color-scheme: light !important;
+}
 html, body {
   height: 100%;
   /* !important on margin/padding/overflow wins the cascade against

@@ -358,6 +358,12 @@ export function findSnapOffset(
  * Move an artboard to an absolute canvas-world position. Applies snap-to-edge
  * alignment with sibling frames when `snap` is true (default). Emits
  * ARTBOARDS_CHANGED on success.
+ *
+ * The `noUndo` option suppresses the per-step undo entry that GrapesJS would
+ * otherwise record. Drag handlers pass `noUndo: true` on every pointermove
+ * and emit a single trackable commit on pointerup — without this, a 100px
+ * drag produces ~30 undo entries instead of one. Honored by GrapesJS' undo
+ * lib (grapesjs@0.22.16 source, `noUndo:!0`).
  */
 export function moveArtboard(
   editor: Editor,
@@ -365,19 +371,20 @@ export function moveArtboard(
   x: number,
   y: number,
   snap: boolean = true,
+  opts: { noUndo?: boolean } = {},
 ): { x: number; y: number; snappedX: boolean; snappedY: boolean } | false {
   const frames = editor.Canvas.getFrames();
   const frame = (frames as unknown as Array<{
     cid?: string;
     id?: string;
-    set?: (a: Record<string, unknown>) => void;
+    set?: (a: Record<string, unknown>, opts?: Record<string, unknown>) => void;
   }>).find((f) => String(f.cid ?? f.id ?? "") === id);
   if (!frame || typeof frame.set !== "function") return false;
 
   const final = snap
     ? findSnapOffset(editor, id, x, y)
     : { x, y, snappedX: false, snappedY: false };
-  frame.set({ x: final.x, y: final.y });
+  frame.set({ x: final.x, y: final.y }, opts.noUndo ? { noUndo: true } : undefined);
   notifyChange(editor);
   return final;
 }

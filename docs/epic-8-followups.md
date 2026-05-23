@@ -4,6 +4,35 @@ Operational working doc for the v0.3 Chrome extension. Strategic direction for v
 
 ---
 
+## Status (as of 2026-05-23)
+
+**v0.3 — shipped.** Three PRD stories (element selection, style serialization, send-to-canvas) functionally complete. See §1.
+
+**v0.3.5 — shipped.** Same-origin iframe inlining (A.1), author-CSS supplement (A.2), capture `<html>` not `<body>` (Experiment A), `mode: "inline"` pre-inlined styles (Experiment C). Outcome on the Python-docs reference: sampled property mismatches **247 → 102 (-58%)**, full UID pairing **97% → 100%**, color/width/height drift dropped out of the top-5 mismatchers. Per-experiment numbers in [capture-fidelity-baseline.md](./capture-fidelity-baseline.md); architectural learnings + roadmap pivot in [ADR-0012 §2026-05-23 addendum](./adr/0012-capture-fidelity-evolution.md#addendum-2026-05-23--v035-research-outcome--roadmap-pivot).
+
+**Resolved gaps** (previously listed in §3 / §4 below):
+
+| Item | Shipped | Commit |
+|------|---------|--------|
+| §3.1 font-CDN allowlist for `@font-face` | 2026-04-25 | `b1e0d0b` |
+| §3.3 `fit_artboard` retry 1500ms → 3000ms | 2026-04-25 | `520d5b4` |
+| §3.4 conservative wrapper flattening | 2026-04-26 | `2725778` |
+| §4.1 `data-dj-uid` per element | 2026-04-25 | `bb916ae` |
+| §4.2 `mode` param on `serialize()` | 2026-04-25 | `bb916ae` |
+
+**Still open:**
+
+- §3.2 CSS custom properties — verify on rendered canvas; no fix required unless drift surfaces.
+- §3.5 cross-origin hotlink-protected images — deferred to v0.4 (CDP `Network.getResponseBody`).
+- §3.6 Shadow DOM — deferred to v0.4 (CDP `DOM.getDocument`).
+- Multi-page baseline (Wikipedia, MDN, Tailwind, Bootstrap, rubychilds.com) — not yet captured; only Python-docs baseline established. See [capture-fidelity-baseline.md → Other fixtures](./capture-fidelity-baseline.md).
+- Inspector unit tests (PositionSection, Layout, Fill/Stroke, Typography) — bridge + artboards + jsx-export + dom-walker + screenshot-stitcher coverage landed 2026-05-23; inspector sections still uncovered.
+- Chrome Web Store review submission — gating v0.3 public availability (ADR-0011 Open Q6).
+
+**Next architectural step:** GrapesJS plugin `@designjs/grapesjs-fidelity-import` using upstream PR [#6767](https://github.com/GrapesJS/grapesjs/pull/6767) `addParserCode` (merged 2026-05-22). Complements — does not replace — the §2 CDP pivot. Sequencing in [ADR-0012 addendum's revised phasing table](./adr/0012-capture-fidelity-evolution.md#addendum-2026-05-23--v035-research-outcome--roadmap-pivot).
+
+---
+
 ## 1 — What shipped in v0.3
 
 The three PRD stories (8.1 element selection, 8.2 style serialization, 8.3 send to canvas) are functionally complete. Summary:
@@ -75,6 +104,8 @@ Known gaps that the current pipeline cannot close without architectural work. Se
 
 ### 3.1 — Google Fonts / external `@font-face` missing (HIGH impact)
 
+**Status:** ✅ Shipped — commit [`b1e0d0b`](../packages/chrome-extension/src/capture/style-serializer.ts) (2026-04-25) hoists allowlisted font-CDN `<link>` tags into the captured output. Allowlist: `fonts.googleapis.com`, `fonts.bunny.net`, `use.typekit.net`, `p.typekit.net`.
+
 **Symptom:** Captured text renders in system fallback font (usually `-apple-system` / `BlinkMacSystemFont`) instead of the source page's font (Inter, Geist, Satoshi, etc.).
 
 **Cause:** The extension serializes `font-family: "Inter", sans-serif` correctly via computed style, but `@font-face` declarations live in the source page's `<link>`-loaded stylesheets, which we strip. The canvas iframe has no knowledge of how to load the font file.
@@ -95,6 +126,8 @@ Expected fix size: ~30 LOC addition to `capture/style-serializer.ts`. No archite
 
 ### 3.3 — `fit_artboard` retry window (1500ms) may be too tight for heavy captures
 
+**Status:** ✅ Shipped — commit `520d5b4` (2026-04-25) bumped the retry deadline 1500ms → 3000ms in [handlers.ts](../packages/app/src/bridge/handlers.ts). Proportional sizing (2ms per node) not implemented; flat 3000ms has held.
+
 **Symptom:** After whole-page capture lands, the artboard frame is short (e.g. 2000px) on a page whose rendered content is ~8000px. Capture itself succeeded; the measurement raced the iframe layout.
 
 **Fix:** Bump the retry deadline in [handlers.ts:367](../packages/app/src/bridge/handlers.ts#L367) from 1500ms → 3000ms (or make it proportional to the captured node count — 2ms per node, min 1500ms, max 5000ms).
@@ -102,6 +135,8 @@ Expected fix size: ~30 LOC addition to `capture/style-serializer.ts`. No archite
 Only ship if §3.1 lands first — once fonts load correctly, layout settles slower than the current budget allows.
 
 ### 3.4 — Pass-through wrapper / empty-node bloat (MEDIUM impact — size + parse speed)
+
+**Status:** ✅ Shipped — commit `2725778` (2026-04-26) added a conservative wrapper-flattening pass. A more aggressive idempotent pass remains a future option if multi-page baselines show the conservative pass leaves too much wrapper bloat on heavy frameworks.
 
 **Symptom:** Captured payload is bigger than it needs to be; GrapesJS parse takes hundreds of ms on mid-sized pages because the DOM has hundreds of semantically-empty `<div>` wrappers (framework artifacts — Next.js / React injects them for layout, accessibility, and data-attribute wiring).
 
@@ -122,6 +157,8 @@ Deferred per ADR-0011 Open Q4. Silently skipped today. Post-CDP (ADR-0012 §2), 
 ---
 
 ## 4 — Non-breaking v0.3 stubs (enables v0.4 without refactor)
+
+**Status:** ✅ Both shipped via commit `bb916ae` (2026-04-25).
 
 Two one-line additions that make future v0.4 work additive rather than breaking:
 

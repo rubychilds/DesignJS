@@ -13,7 +13,7 @@ import {
 import { cn } from "../../lib/utils.js";
 import {
   clearStyle,
-  readComputedStyle,
+  readEffectiveStyle,
   readStyle,
   writeStyle,
 } from "../../canvas/component-style.js";
@@ -133,15 +133,18 @@ const TEXT_DECORATION_OPTIONS = [
 ] as const;
 
 export function TypographySection({ component }: { component: Component }) {
-  const fontFamily = readStyle(component, "font-family");
-  const fontWeight = readStyle(component, "font-weight") || "400";
-  // Fall back to the computed font-size (from the live DOM inside the canvas
-  // iframe) when the component has no explicit font-size — so the input
-  // shows, say, "16" on a default <p> rather than blank.
-  const fontSize =
-    readStyle(component, "font-size") || readComputedStyle(component, "font-size");
-  const lineHeight = readStyle(component, "line-height");
-  const letterSpacing = readStyle(component, "letter-spacing");
+  // readEffectiveStyle: prefer set styles, fall back to computed when
+  // captured-page elements route their styles via GrapesJS' CSS Manager
+  // instead of the component model (extension capture path). Important
+  // for things like font-weight where headings render bold (700) but
+  // the component model has no explicit weight set.
+  const fontFamily = readEffectiveStyle(component, "font-family");
+  const fontWeight = readEffectiveStyle(component, "font-weight") || "400";
+  // Effective fall back also handles the default case (an unstyled <p>
+  // shows the iframe's computed 16px rather than blank).
+  const fontSize = readEffectiveStyle(component, "font-size");
+  const lineHeight = readEffectiveStyle(component, "line-height");
+  const letterSpacing = readEffectiveStyle(component, "letter-spacing");
   // No explicit text-align → the browser default is "left" (for LTR locales,
   // which is what DesignJS targets today). Surface that in the inspector
   // so the Left toggle shows as selected rather than the whole group sitting

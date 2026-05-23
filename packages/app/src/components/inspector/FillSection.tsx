@@ -2,7 +2,7 @@ import * as React from "react";
 import type { Component } from "grapesjs";
 import { Eye, EyeClosed, Minus, PlusOutline } from "../../canvas/chrome-icons.js";
 import { cn } from "../../lib/utils.js";
-import { clearStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
+import { clearStyle, readEffectiveStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
 import { InspectorSection } from "./InspectorSection.js";
 import { NumberInput } from "../ui/number-input.js";
 import { ColorField } from "./controls/ColorField.js";
@@ -151,9 +151,12 @@ function FillRow({
 export function FillSection({ component }: { component: Component }) {
   const isText = isTypographyTarget(component);
 
-  const bgImage = readStyle(component, "background-image");
-  const bgColor = readStyle(component, "background-color");
-  const textColor = readStyle(component, "color");
+  // readEffectiveStyle: prefer set styles, fall back to computed when
+  // captured-page elements route their styles via GrapesJS' CSS Manager
+  // instead of the component model (extension capture path).
+  const bgImage = readEffectiveStyle(component, "background-image");
+  const bgColor = readEffectiveStyle(component, "background-color");
+  const textColor = readEffectiveStyle(component, "color");
   const parsed = React.useMemo(() => {
     if (isText) {
       if (!textColor) return [];

@@ -65,6 +65,30 @@ export function readBoundingBox(
   };
 }
 
+/**
+ * Read the *effective* style value for a property: prefer the
+ * component's set style (what `readStyle` returns), but fall back to
+ * the rendered computed value when the set style is empty.
+ *
+ * Why: when a page is captured into the canvas via the Chrome
+ * extension, GrapesJS' parser routes inline `style=""` declarations
+ * into the CSS Manager (keyed by ID) instead of the component model.
+ * `readStyle` reads from the component model — so it returns "" for
+ * captured elements even though the element renders with the right
+ * styles via the CSS Manager rules. The inspector's "what does this
+ * element look like?" sections (Fill, Typography, etc.) want the
+ * effective value either way.
+ *
+ * Use this for any property the inspector surfaces as the element's
+ * appearance; keep `readStyle` for places where the inspector needs
+ * to distinguish "user-set" from "inheriting" (e.g. mode toggles).
+ */
+export function readEffectiveStyle(component: Component, key: string): string {
+  const set = readStyle(component, key);
+  if (set) return set;
+  return readComputedStyle(component, key);
+}
+
 // component.getEl() returns null under GrapesJS v2's multi-frame layout; the
 // primary view holds the rendered element reference instead.
 function componentEl(component: Component): Element | null | undefined {

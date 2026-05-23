@@ -234,9 +234,17 @@ async function capturePage(): Promise<void> {
   // `document.documentElement` (see mountOverlay above), so under
   // Experiment A (capture from documentElement) it lands in the
   // captured tree. ROOT_ID is the overlay's container id.
+  //
+  // Experiment C: mode: "inline" writes computed styles directly to
+  // style="" attrs instead of hoisting to ._djN classes. Tests
+  // whether bypassing GrapesJS' <style>-block parse path + CSS-Manager
+  // re-ID improves fidelity. If the per-element drift metric doesn't
+  // improve, the bug isn't where the styles live — it's the resolved
+  // pixel values we capture from getComputedStyle for auto-sized
+  // properties (width/height drift at 50/50 in the current baseline).
   const result = serialize(root, {
     hardLimit: PAGE_CAPTURE_HARD_LIMIT,
-    mode: "computed",
+    mode: "inline",
     excludeIds: [ROOT_ID],
   });
   const t1 = performance.now();

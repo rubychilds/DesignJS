@@ -32,21 +32,31 @@ export interface SerializeError {
 }
 
 /**
- * Serialization mode. v0.3 ships only `"computed"` (current behavior:
- * resolved values from `getComputedStyle` per element). v0.4 will add
- * `"author"` (source-stylesheet preservation) and `"hybrid"` (cascade-
- * fallback) per ADR-0012 §4. Reserving the namespace today so call
- * sites are forwards-compatible — passing anything other than
- * `"computed"` throws so we don't ship a silent no-op.
+ * Serialization mode.
+ *
+ *  - `"computed"` (default) — `getComputedStyle` per element, hoisted
+ *    to auto-generated `._djN` classes in a single `<style data-designjs-
+ *    capture>` block. Class-keyed; GrapesJS' CSS Manager re-IDs them
+ *    into per-rule entries on import.
+ *  - `"inline"` — same computed values, but written directly to each
+ *    element's `style=""` attribute. Experiment C in the v0.3.5
+ *    research+experiment track — tests whether bypassing the
+ *    `<style>` block fights GrapesJS' parser less. Subject to per-
+ *    component `stylable` allowlist strip (the very allowlist we
+ *    designed the class-hoist around).
+ *
+ * v0.4 will add `"author"` (source-stylesheet preservation) and
+ * `"hybrid"` (cascade-fallback) per ADR-0012 §4 — passing those
+ * still throws so we don't silently ship a no-op.
  */
-export type SerializeMode = "computed";
+export type SerializeMode = "computed" | "inline";
 
 export interface SerializeOptions {
   /** Hard abort threshold in bytes. Defaults to 500KB (element selection). Whole-page captures pass a larger cap. */
   hardLimit?: number;
   /** Soft warning threshold. Defaults to 80% of hardLimit. */
   softLimit?: number;
-  /** v0.3 prep-stub for ADR-0012 §4 — only `"computed"` is supported today. */
+  /** Serialization mode. See SerializeMode. */
   mode?: SerializeMode;
   /**
    * IDs to drop from the captured tree (children-loop check, same as
@@ -297,6 +307,8 @@ interface Counters {
   uidCounter: { n: number };
   /** IDs to drop from the captured tree (see SerializeOptions.excludeIds). */
   excludeIds?: readonly string[];
+  /** Serialization mode (see SerializeMode). */
+  mode: SerializeMode;
 }
 
 /**
@@ -365,12 +377,15 @@ function stripAndInline(
 ): boolean {
   counters.nodes += 1;
 
-  // Compute the element's style and attach it as a class (never as
-  // style="..."). See Counters.styleToClass for why.
+  // Compute the element's style. Two emission strategies based on mode:
+  //   "computed" (default) — attach as a generated class, deduped via
+  //     styleToClass; rules hoisted to a single <style> block at the end.
+  //   "inline" — write directly to the element's style="" attribute.
+  //     Experiment C in the v0.3.5 research+experiment track.
   const computed = window.getComputedStyle(src);
   const parentComputed = parentSrc ? window.getComputedStyle(parentSrc) : null;
   const style = buildInlineStyle(computed, parentComputed);
-  if (style) {
+  if (style && counters.mode === "computed") {
     let className = counters.styleToClass.get(style);
     if (!className) {
       className = `_dj${(counters.classCounter.n++).toString(36)}`;
@@ -378,8 +393,9 @@ function stripAndInline(
     }
     (clone as HTMLElement).classList.add(className);
   }
-  // Always drop any pre-existing style attribute — it came from the
-  // source page and our class covers the same ground (or more).
+  // Drop any pre-existing style attribute from the source. In computed
+  // mode our class covers the same ground; in inline mode we'll
+  // overwrite below with our own composed style after the strip loop.
   (clone as HTMLElement).removeAttribute("style");
 
   // Stamp a monotonic UID per element. Reserved for ADR-0012 §3 re-
@@ -387,9 +403,18 @@ function stripAndInline(
   const uid = counters.uidCounter.n++;
   (clone as HTMLElement).setAttribute("data-dj-uid", String(uid));
 
-  // Strip dangerous attributes from the clone.
+  // Strip dangerous attributes from the clone. shouldDropAttr returns
+  // true for "style" — we already cleared it above, and we'll re-set
+  // it after this loop for inline mode (it'd otherwise be stripped).
   for (const attr of Array.from(clone.attributes)) {
     if (shouldDropAttr(attr.name)) clone.removeAttribute(attr.name);
+  }
+
+  // Inline-mode style write goes AFTER the strip loop so shouldDropAttr's
+  // "style" → drop rule (correct for the captured source style) doesn't
+  // wipe our composed inline style.
+  if (style && counters.mode === "inline") {
+    (clone as HTMLElement).setAttribute("style", style);
   }
 
   // Rewrite relative src/srcset/href on media elements to absolute URLs
@@ -453,13 +478,13 @@ export function serialize(
     return { error: "empty-input", nodeCount: 0, byteCount: 0 };
   }
 
-  // v0.3 only ships `"computed"`. Any other value is a request for v0.4
-  // capture modes that don't exist yet — fail loud rather than silently
-  // returning the computed-mode result and pretending it's author-mode.
+  // v0.3.5 ships `"computed"` and `"inline"`. v0.4's `"author"` /
+  // `"hybrid"` modes (ADR-0012 §4) are NOT implemented — passing them
+  // throws rather than silently returning a computed-mode result.
   const mode: SerializeMode = opts.mode ?? "computed";
-  if (mode !== "computed") {
+  if (mode !== "computed" && mode !== "inline") {
     throw new Error(
-      `serialize: mode "${mode}" is reserved for ADR-0012 §4 (not yet implemented). v0.3 supports only "computed".`,
+      `serialize: mode "${mode}" is reserved for ADR-0012 §4 (not yet implemented). v0.3.5 supports "computed" and "inline".`,
     );
   }
 
@@ -482,6 +507,7 @@ export function serialize(
     classCounter: { n: 0 },
     uidCounter: { n: 0 },
     excludeIds: opts.excludeIds,
+    mode,
   };
 
   // Pass `null` as parentSrc for the captured root so buildInlineStyle's
@@ -511,24 +537,29 @@ export function serialize(
     };
   }
 
-  // Conservative wrapper flattening — collapses pass-through <div>s
-  // (framework-injected layout artifacts with no styling and a single
-  // child). epic-8-followups §3.4. Idempotent within a single capture.
-  flattenPassThroughWrappers(clone, counters.styleToClass);
+  // The next two passes are computed-mode only:
+  //  - flattenPassThroughWrappers reads styleToClass to identify
+  //    no-op wrapper divs by their auto-generated class; inline mode
+  //    leaves styleToClass empty so nothing flattens.
+  //  - The hoisted <style data-designjs-capture> block has no rules
+  //    to emit in inline mode.
+  if (mode === "computed") {
+    flattenPassThroughWrappers(clone, counters.styleToClass);
 
-  // Emit a <style> block with one rule per unique computed-style signature.
-  // Prepended inside the clone so GrapesJS' parser finds it via parseCss and
-  // registers the rules in the canvas cascade — classes on elements resolve
-  // against these rules just like regular class-based CSS.
-  const cssRules: string[] = [];
-  for (const [style, className] of counters.styleToClass) {
-    cssRules.push(`.${className}{${style}}`);
+    // Emit a <style> block with one rule per unique computed-style signature.
+    // Prepended inside the clone so GrapesJS' parser finds it via parseCss and
+    // registers the rules in the canvas cascade — classes on elements resolve
+    // against these rules just like regular class-based CSS.
+    const cssRules: string[] = [];
+    for (const [style, className] of counters.styleToClass) {
+      cssRules.push(`.${className}{${style}}`);
+    }
+    const cssText = cssRules.join("");
+    const styleEl = clone.ownerDocument.createElement("style");
+    styleEl.setAttribute("data-designjs-capture", "");
+    styleEl.textContent = cssText;
+    (clone as HTMLElement).insertBefore(styleEl, (clone as HTMLElement).firstChild);
   }
-  const cssText = cssRules.join("");
-  const styleEl = clone.ownerDocument.createElement("style");
-  styleEl.setAttribute("data-designjs-capture", "");
-  styleEl.textContent = cssText;
-  (clone as HTMLElement).insertBefore(styleEl, (clone as HTMLElement).firstChild);
 
   // Author CSS supplement (A.2). Inserted as firstChild so it appears
   // *before* the computed-style block in source order — computed wins

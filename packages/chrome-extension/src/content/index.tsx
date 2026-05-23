@@ -149,10 +149,12 @@ function stopCapture(): void {
  * `<body>`. The overlay is mounted at `document.documentElement` so it
  * isn't nested inside body and won't pollute the capture.
  *
- * Raises the payload cap to 2MB — whole pages routinely exceed the 500KB
- * default that's tuned for element selection.
+ * 8MB cap. `mode: "inline"` (Experiment C) writes a full computed-style
+ * block into every element's `style=""`, which costs ~1KB/node vs ~200B/node
+ * under the old class-hoist path. Long-form content (Wikipedia articles,
+ * docs sites) trips a 2MB cap at ~2k nodes; 8MB covers ~8k nodes worst case.
  */
-const PAGE_CAPTURE_HARD_LIMIT = 2 * 1024 * 1024;
+const PAGE_CAPTURE_HARD_LIMIT = 8 * 1024 * 1024;
 
 /**
  * Modern marketing sites (Next.js / Astro / React with `next/dynamic`
@@ -229,6 +231,24 @@ async function capturePage(): Promise<void> {
   // Force lazy-mounted sections to materialise before we serialise.
   // See scrollToBottomAndSettle docstring.
   await scrollToBottomAndSettle();
+
+  // Tell the overlay we're about to serialize. querySelectorAll("*") is
+  // cheap and gives a node estimate for the progress text. Two RAFs let
+  // React paint the new state before the synchronous serialize() locks
+  // the JS thread for the next several hundred ms on long pages.
+  const estimatedNodes = root.querySelectorAll("*").length;
+  window.postMessage(
+    {
+      type: "designjs:capture:progress",
+      phase: "serializing",
+      estimatedNodes,
+    },
+    "*",
+  );
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  );
+
   const t0 = performance.now();
   // Exclude the extension's own overlay — it's mounted on
   // `document.documentElement` (see mountOverlay above), so under
@@ -364,6 +384,13 @@ chrome.runtime.onMessage.addListener((msg) => {
     capturePage().catch((err: Error) =>
       console.warn("[designjs] capturePage failed:", err),
     );
+  // Background relays canvas-side progress (create_artboard / add_components /
+  // fit_artboard transitions) here. Forward to the window so the React overlay,
+  // which already listens on window.postMessage, can update without growing a
+  // second channel.
+  if (msg?.type === "designjs:capture:progress") {
+    window.postMessage(msg, "*");
+  }
 });
 
 // The overlay's Start/Stop button posts via window.postMessage (simpler

@@ -21,12 +21,32 @@ type CaptureError =
   | "cancelled"
   | "unknown";
 
+type RenderingSub =
+  | "creating-artboard"
+  | "adding-backplate"
+  | "adding-components"
+  | "fitting";
+
 type CaptureState =
   | { kind: "idle" }
   | { kind: "capturing" }
+  | { kind: "serializing"; estimatedNodes: number }
+  | { kind: "screenshotting"; nodeCount: number; byteCount: number }
   | { kind: "sending"; nodeCount: number; byteCount: number }
+  | { kind: "rendering"; sub: RenderingSub; nodeCount?: number; byteCount?: number }
   | { kind: "sent"; nodeCount: number; byteCount: number }
   | { kind: "error"; error: CaptureError; detail?: string };
+
+const IN_PROGRESS_KINDS = new Set([
+  "serializing",
+  "screenshotting",
+  "sending",
+  "rendering",
+] as const);
+
+function isInProgress(state: CaptureState): boolean {
+  return (IN_PROGRESS_KINDS as Set<string>).has(state.kind);
+}
 
 function StatusDot({ status }: { status: BridgeStatus }) {
   return (
@@ -66,9 +86,21 @@ export function App({ onDismiss }: AppProps = {}) {
       const data = ev.data as
         | {
             type: "designjs:capture:progress";
-            phase: "sending";
+            phase: "serializing";
+            estimatedNodes: number;
+          }
+        | {
+            type: "designjs:capture:progress";
+            phase: "screenshotting" | "sending";
             nodeCount: number;
             byteCount: number;
+          }
+        | {
+            type: "designjs:capture:progress";
+            phase: "rendering";
+            sub: RenderingSub;
+            nodeCount?: number;
+            byteCount?: number;
           }
         | {
             type: "designjs:capture:result";
@@ -77,13 +109,36 @@ export function App({ onDismiss }: AppProps = {}) {
             nodeCount?: number;
             byteCount?: number;
           };
-      if (data?.type === "designjs:capture:progress" && data.phase === "sending") {
-        setCapture({
-          kind: "sending",
-          nodeCount: data.nodeCount,
-          byteCount: data.byteCount,
-        });
-        return;
+      if (data?.type === "designjs:capture:progress") {
+        if (data.phase === "serializing") {
+          setCapture({ kind: "serializing", estimatedNodes: data.estimatedNodes });
+          return;
+        }
+        if (data.phase === "screenshotting") {
+          setCapture({
+            kind: "screenshotting",
+            nodeCount: data.nodeCount,
+            byteCount: data.byteCount,
+          });
+          return;
+        }
+        if (data.phase === "sending") {
+          setCapture({
+            kind: "sending",
+            nodeCount: data.nodeCount,
+            byteCount: data.byteCount,
+          });
+          return;
+        }
+        if (data.phase === "rendering") {
+          setCapture({
+            kind: "rendering",
+            sub: data.sub,
+            nodeCount: data.nodeCount,
+            byteCount: data.byteCount,
+          });
+          return;
+        }
       }
       if (data?.type === "designjs:capture:result") {
         if (data.ok) {
@@ -133,12 +188,16 @@ export function App({ onDismiss }: AppProps = {}) {
   };
 
   const capturePage = () => {
-    setCapture({ kind: "sending", nodeCount: 0, byteCount: 0 });
+    // Optimistic placeholder; real phase events from the content script
+    // (serializing → screenshotting → sending → rendering) take over once
+    // the page-capture pipeline starts emitting.
+    setCapture({ kind: "serializing", estimatedNodes: 0 });
     window.postMessage({ type: "designjs:capture:page" }, "*");
   };
 
   const disconnected = status !== "connected";
   const capturing = capture.kind === "capturing";
+  const inProgress = isInProgress(capture);
   const statusLabel =
     status === "connected"
       ? "Connected to canvas"
@@ -198,19 +257,15 @@ export function App({ onDismiss }: AppProps = {}) {
         <div className="flex gap-2">
           <Button
             onClick={capturing ? stop : start}
-            disabled={disconnected || capture.kind === "sending"}
+            disabled={disconnected || inProgress}
             fullWidth
             variant={capturing ? "outline" : "default"}
           >
-            {capture.kind === "sending"
-              ? "Sending…"
-              : capturing
-                ? "Stop capture"
-                : "Start capture"}
+            {inProgress ? "Capturing…" : capturing ? "Stop capture" : "Start capture"}
           </Button>
           <Button
             onClick={capturePage}
-            disabled={disconnected || capturing || capture.kind === "sending"}
+            disabled={disconnected || capturing || inProgress}
             fullWidth
             variant="outline"
             title="Capture the entire page"
@@ -218,6 +273,43 @@ export function App({ onDismiss }: AppProps = {}) {
             Capture page
           </Button>
         </div>
+
+        {inProgress && (
+          <div className="rounded-sm border border-border bg-muted/30 px-2.5 py-2 text-[var(--text-xs)] text-muted-foreground">
+            {capture.kind === "serializing" && (
+              <>
+                Capturing
+                {capture.estimatedNodes > 0
+                  ? ` ~${capture.estimatedNodes.toLocaleString()} elements`
+                  : " page"}
+                …
+              </>
+            )}
+            {capture.kind === "screenshotting" && (
+              <>
+                Taking page screenshot — {capture.nodeCount.toLocaleString()} elements,{" "}
+                {(capture.byteCount / 1024).toFixed(1)} KB
+              </>
+            )}
+            {capture.kind === "sending" && (
+              <>
+                Sending {capture.nodeCount.toLocaleString()} elements (
+                {(capture.byteCount / 1024).toFixed(1)} KB) to canvas…
+              </>
+            )}
+            {capture.kind === "rendering" && (
+              <>
+                {capture.sub === "creating-artboard"
+                  ? "Creating artboard…"
+                  : capture.sub === "adding-backplate"
+                    ? "Compositing backplate…"
+                    : capture.sub === "adding-components"
+                      ? "Rendering on canvas…"
+                      : "Fitting frame to content…"}
+              </>
+            )}
+          </div>
+        )}
 
         {capturing && (
           <p className="text-[var(--text-xs)] text-muted-foreground leading-relaxed m-0">

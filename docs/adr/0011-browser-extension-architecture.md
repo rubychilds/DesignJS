@@ -162,4 +162,47 @@ Tier-1 follow-up landing (2026-04-24):
 
 ---
 
+## Addendum (2026-05-04) — v0.3.5 same-origin fidelity landings
+
+Two content-script-only evolutions of the v0.3 capture path —
+deliberately scoped to what the existing serializer can reach without
+the manifest `"debugger"` permission or any of the ADR-0012 §2 CDP
+plumbing. Both close *same-origin* halves of gaps that §2 was written
+to address; the cross-origin halves remain §2's responsibility.
+
+- `5226b68` — **Same-origin iframe inlining (A.1).** When the source
+  iframe's `contentDocument` is reachable, `stripAndInline()` calls
+  `serialize()` recursively on `contentDocument.body` and re-emits the
+  result on the cloned iframe's `srcdoc` attribute. Each inlined
+  iframe carries `data-designjs-inlined-iframe="<bytes>"` for
+  inspector / future-tooling hooks. Inlined HTML counts against the
+  parent's size budget; <4KB headroom = skip rather than abort.
+  Cross-origin iframes (`SecurityError` on `contentDocument`) pass
+  through unchanged with the absolute `src` `normalizeMediaAttrs`
+  already wrote. 4 vitest specs.
+- `debdc1d` — **Author-CSS supplement (A.2).** New exported
+  `collectAuthorCss(doc)` walks `document.styleSheets`, extracts CSS
+  from same-origin sheets (cross-origin throws on `.cssRules`), and
+  rewrites relative `url(...)` against `sheet.href ?? doc.baseURI`.
+  Emitted as a hoisted `<style data-designjs-author>` block *before*
+  the existing `<style data-designjs-capture>` block so the computed
+  layer (later in source order) wins on equal-specificity conflicts.
+  Brings along what the computed walker can't see: `@keyframes`,
+  `@font-face` (beyond the narrow font-CDN allowlist), `::before` /
+  `::after` pseudo-element rules, `@supports` / `@layer` / `@page`.
+  `@import` and `@charset` rules skipped. 11 vitest specs.
+
+**Important non-shipped distinction:** A.2 is a *supplement*, not the
+ADR-0012 §4 author/computed/hybrid `mode` system. There is still no
+`mode: "author"` / `mode: "hybrid"`; the cascade ordering means
+`@media` reflow does *not* take effect on the canvas (computed values
+snapshotted at the host viewport override narrower-width media rules).
+True `@media` reflow requires §4 — explicitly out of scope here. See
+[ADR-0012's 2026-05-04 §§2/§4-scope addendum](./0012-capture-fidelity-evolution.md#addendum-2026-05-04--scope-clarification-after-v035-same-origin-landings).
+
+Vitest suite at the time of landing: 28 → 39 specs across the
+chrome-extension package; typecheck clean; webpack build clean.
+
+---
+
 *End of ADR-0011.*

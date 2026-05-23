@@ -231,4 +231,59 @@ thumb.
 
 ---
 
+## Addendum (2026-05-04) — scope clarification after v0.3.5 same-origin landings
+
+Two content-script-only landings on ADR-0011's v0.3 path
+(`5226b68` same-origin iframe inlining, `debdc1d` author-CSS supplement)
+close the *same-origin* halves of gaps §2 and §4 were written to
+address. Recording the scope shift here so future readers don't
+mis-read the v0.3.5 work as §§2/§4 shipping.
+
+**§2 remaining scope narrows but does not shrink in importance.** The
+CDP pivot was justified by four capabilities (shadow DOM, cross-
+origin iframes, authed/cookie-protected assets, full author CSS).
+After v0.3.5:
+
+- Shadow DOM — still §2's responsibility (unchanged).
+- Cross-origin iframes — still §2's responsibility. The *same-origin*
+  half is now handled in the content script via
+  `iframe.contentDocument` + `srcdoc`; the cross-origin half remains
+  unreachable without `DOM.getDocument`.
+- Authed/cookie-protected assets — still §2's responsibility
+  (unchanged; `Network.getResponseBody` is the only path).
+- Author CSS — *partly* covered. Same-origin sheets are now extracted
+  via `document.styleSheets`. Cross-origin sheets still throw
+  `SecurityError` and need `CSS.getMatchedStylesForNode` from §2.
+
+**§4 remains Proposed and is *not* covered by `debdc1d`.** The author-
+CSS supplement is a hoisted `<style>` block alongside the existing
+computed-style block; it is *not* the discrete mode system §4
+describes. Specifically, what §4 still requires:
+
+- A `mode` parameter accepting `"author"` / `"computed"` / `"hybrid"`
+  (today only `"computed"` is valid; A.2 is an additive hoist that
+  runs regardless of mode).
+- Source-class preservation as the *primary* selector mechanism
+  (today, captured elements still carry both their source classes
+  *and* auto-generated `_dj…` computed classes — author rules can
+  match the former but computed always wins on conflict).
+- True `@media` reflow on the canvas (today the computed snapshot
+  pins per-element values at the host viewport, overriding narrower-
+  width media rules even though the rules are present in the author
+  block).
+- Cascade-aware emission for the hybrid mode (author-first with
+  computed fallback only where author rules are ambiguous or
+  missing).
+
+Treat A.2 as a "preview of value" — the things it brings along
+(`@keyframes`, `@font-face`, `::before/::after`, decorative author
+rules) are real fidelity wins, but the narrative of "author mode
+shipped" would be inaccurate.
+
+Cross-references:
+[ADR-0011 2026-05-04 v0.3.5 addendum](./0011-browser-extension-architecture.md#addendum-2026-05-04--v035-same-origin-fidelity-landings)
+records the matching landings and the source-side cascade rationale.
+
+---
+
 *End of ADR-0012.*

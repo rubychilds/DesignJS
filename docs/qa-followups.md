@@ -13,7 +13,7 @@ Broader OSS-launch hygiene (lint, coverage thresholds, Tailwind v4 `@theme` E2E)
 | QA-1  | `jsx-export` merge regex doesn't track brace nesting              | Medium                    | Resolved (`42e63ac`) |
 | QA-2  | Bridge schemas not `.strict()` — unknown fields silently accepted | Medium                    | Open   |
 | QA-3  | No `EventMessage` schema in bridge protocol                       | Low (until events needed) | Open   |
-| QA-4  | `chrome-ext-orbis` package is unrelated to DesignJS               | Low                       | Open   |
+| QA-4  | `chrome-ext-orbis` package is unrelated to DesignJS               | Low                       | Resolved (`7de16e8`) |
 
 ---
 

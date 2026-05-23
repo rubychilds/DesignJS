@@ -5,7 +5,7 @@ import type { Component, Editor } from "grapesjs";
 import "grapesjs/dist/css/grapes.min.css";
 
 import { editorOptions, PRIMITIVE_BASE_CSS } from "./canvas/editor-options.js";
-import { ensureDefaultArtboard, ensurePageRoot } from "./canvas/artboards.js";
+import { ensureDefaultArtboard, ensurePageRoot, healFrameDimensions } from "./canvas/artboards.js";
 import { attachPasteImport, importPastedHtml } from "./canvas/paste-import.js";
 import { attachPersistence, loadProject, saveProject } from "./canvas/persistence.js";
 import {
@@ -166,6 +166,22 @@ export function App() {
     // order, which was fragile to drag-reorder / deletion / non-
     // deterministic load order.
     ensurePageRoot(editor);
+
+    // Restore dimensions on any frame whose persisted state lost
+    // width/height (a fixed-since legacy-corruption case — see
+    // healFrameDimensions docstring). Runs after a delay so the iframes
+    // have actually mounted; otherwise offsetWidth is 0 and the heal
+    // measurement is garbage.
+    window.setTimeout(() => {
+      try {
+        const healed = healFrameDimensions(editor);
+        if (healed > 0) {
+          console.info(`[designjs] healed ${healed} frame(s) with missing dimensions`);
+        }
+      } catch (err) {
+        console.warn("[designjs] healFrameDimensions failed:", err);
+      }
+    }, 1500);
 
     // Fit the viewport to all frames after boot so the default 1280×800
     // frame (or whatever the saved project has) is visible from the first

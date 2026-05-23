@@ -684,3 +684,57 @@ export function clearAllFrames(editor: Editor): void {
   for (const frame of snapshot) collection.remove(frame);
   notifyChange(editor);
 }
+
+/**
+ * Heal any frames whose persisted state is missing `width` / `height` /
+ * `x` / `y`.
+ *
+ * Background: a previous bug (since fixed) saved captured artboards to
+ * `.designjs.json` without their dimensions. On reload, GrapesJS's Frame
+ * constructor sees a falsy `width`/`height` and flips on the internal
+ * `__aw` / `__ah` "auto-size" flags (grapesjs@0.22.16 source, search
+ * `__aw`). In auto-size mode, the iframe sizes to `view.el.offsetWidth`
+ * — i.e. it stretches to fill whatever canvas viewport is available.
+ * Side effect: dragging *any other* artboard causes a layout shift in
+ * `.gjs-frames`, the captured iframe re-stretches to the new available
+ * width, and the user perceives a "narrowing" of the artboard.
+ *
+ * This heal step measures the iframe's current `offsetWidth` /
+ * `scrollHeight` and writes them back to the frame model + the wrapper
+ * component CSS (via {@link applyFrameDimensions}). Idempotent — frames
+ * with valid dims are left alone. Must run *after* `loadProjectData`
+ * AND after iframes have mounted (give it a setTimeout in the caller).
+ */
+export function healFrameDimensions(editor: Editor): number {
+  const frames = editor.Canvas.getFrames();
+  let healed = 0;
+  for (const f of frames) {
+    const m = f as unknown as {
+      get?: (k: string) => unknown;
+      set?: (a: Record<string, unknown>) => void;
+      view?: { frame?: { el?: HTMLIFrameElement }; el?: HTMLIFrameElement };
+    };
+    const currentW = m.get?.("width");
+    const currentH = m.get?.("height");
+    const needsW = !currentW || currentW === "" || Number(currentW) === 0;
+    const needsH = !currentH || currentH === "" || Number(currentH) === 0;
+    if (!needsW && !needsH) continue;
+    const iframeEl = m.view?.frame?.el ?? m.view?.el;
+    const doc = iframeEl?.contentDocument;
+    if (!iframeEl) continue;
+    const measuredW = needsW ? iframeEl.offsetWidth || 1440 : Number(currentW);
+    // For height, prefer body.scrollHeight (captured content's full extent)
+    // over offsetHeight (which is clipped to viewport when __ah is on).
+    const measuredH = needsH
+      ? doc?.body?.scrollHeight || iframeEl.offsetHeight || 900
+      : Number(currentH);
+    const next: Record<string, unknown> = {};
+    if (needsW) next.width = measuredW;
+    if (needsH) next.height = measuredH;
+    m.set?.(next);
+    applyFrameDimensions(f as Frame);
+    healed += 1;
+  }
+  if (healed > 0) notifyChange(editor);
+  return healed;
+}

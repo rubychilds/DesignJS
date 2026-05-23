@@ -48,6 +48,13 @@ export interface SerializeOptions {
   softLimit?: number;
   /** v0.3 prep-stub for ADR-0012 §4 — only `"computed"` is supported today. */
   mode?: SerializeMode;
+  /**
+   * IDs to drop from the captured tree (children-loop check, same as
+   * DROP_ELEMENTS). Whole-page capture from `documentElement` passes
+   * the overlay's `designjs-capture-root` here so the extension's own
+   * UI doesn't end up in the captured artboard.
+   */
+  excludeIds?: readonly string[];
 }
 
 const DEFAULT_SOFT_LIMIT = 400 * 1024;
@@ -288,6 +295,8 @@ interface Counters {
    * reads them yet.
    */
   uidCounter: { n: number };
+  /** IDs to drop from the captured tree (see SerializeOptions.excludeIds). */
+  excludeIds?: readonly string[];
 }
 
 /**
@@ -411,6 +420,11 @@ function stripAndInline(
       continue;
     }
 
+    if (srcChild.id && counters.excludeIds && counters.excludeIds.includes(srcChild.id)) {
+      cloneChild.remove();
+      continue;
+    }
+
     const ok = stripAndInline(cloneChild, srcChild, src, counters);
     if (!ok) return false;
   }
@@ -467,6 +481,7 @@ export function serialize(
     styleToClass: new Map(),
     classCounter: { n: 0 },
     uidCounter: { n: 0 },
+    excludeIds: opts.excludeIds,
   };
 
   // Pass `null` as parentSrc for the captured root so buildInlineStyle's

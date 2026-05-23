@@ -230,7 +230,15 @@ async function capturePage(): Promise<void> {
   // See scrollToBottomAndSettle docstring.
   await scrollToBottomAndSettle();
   const t0 = performance.now();
-  const result = serialize(root, { hardLimit: PAGE_CAPTURE_HARD_LIMIT, mode: "computed" });
+  // Exclude the extension's own overlay — it's mounted on
+  // `document.documentElement` (see mountOverlay above), so under
+  // Experiment A (capture from documentElement) it lands in the
+  // captured tree. ROOT_ID is the overlay's container id.
+  const result = serialize(root, {
+    hardLimit: PAGE_CAPTURE_HARD_LIMIT,
+    mode: "computed",
+    excludeIds: [ROOT_ID],
+  });
   const t1 = performance.now();
   if ("error" in result) {
     console.warn("[designjs] page serialize failed:", result);

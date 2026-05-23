@@ -70,4 +70,16 @@ export const editorOptions: EditorConfig = {
     custom: true,
   },
   panels: { defaults: [] },
+  // Honour newline-only text nodes when parsing imported HTML. Without
+  // this GrapesJS strips text nodes whose content is purely whitespace
+  // (PR https://github.com/GrapesJS/grapesjs/pull/6571 in v0.22.12 made
+  // the option actually work — before that it was silently ignored).
+  // Load-bearing for captured `<pre>` code blocks whose newlines live
+  // in text nodes between syntax-highlighted `<span>` children — without
+  // this, code blocks render on a single mashed line.
+  parser: {
+    optionsHtml: {
+      keepEmptyTextNodes: true,
+    },
+  },
 };

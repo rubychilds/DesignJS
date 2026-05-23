@@ -277,10 +277,19 @@ function buildInlineStyle(
       continue;
     }
     const v = computed.getPropertyValue(prop);
+    // `display: none` is semantic — it intentionally hides elements
+    // (Sphinx breadcrumb-nav h3's, ARIA-only landmarks, mobile-only UI
+    // shown via media queries, etc.). Must emit, never skip. The
+    // skip-"none" rule is for properties where "none" === browser-
+    // default (border-*-style, outline-style, background-image, etc.).
+    if (prop === "display" && v === "none") {
+      parts.push("display:none");
+      continue;
+    }
     if (!v || v === "normal" || v === "none" || v === "auto") {
       // Keep layout-critical "auto"s (e.g. width:auto on flex children).
-      // For our purposes, skipping "auto"/"none"/"normal" is safe — the
-      // browser default handles them at render time.
+      // For these other properties, "none" / "normal" / "auto" === browser
+      // default and skipping is safe.
       continue;
     }
     parts.push(`${prop}:${v}`);

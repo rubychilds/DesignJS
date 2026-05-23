@@ -11,6 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group.js";
 import { NumberInput } from "../ui/number-input.js";
 import {
   clearStyle,
+  readBoundingBox,
   readStyle,
   rotationFromTransform,
   transformWithRotation,
@@ -114,11 +115,19 @@ function AlignItemsRow({ component }: { component: Component }) {
 function XYRow({ component }: { component: Component }) {
   const left = readStyle(component, "left");
   const top = readStyle(component, "top");
+  // When the element has no explicit `left`/`top` (typical for
+  // statically-positioned elements — including the entire captured tree
+  // from the Chrome extension's whole-page capture), fall back to the
+  // rendered offsetLeft/offsetTop so the inspector shows a meaningful
+  // position rather than blank inputs. Typing a value still writes
+  // `left`/`top` styles (caller is expected to flip Mode to non-static
+  // for those to take effect).
+  const bbox = !left || !top ? readBoundingBox(component) : null;
   const onChange = (prop: "left" | "top") => (n: number) => writeStyle(component, prop, `${n}px`);
   return (
     <div className="grid grid-cols-2 gap-2">
       <NumberInput
-        value={left}
+        value={left || (bbox ? `${bbox.x}` : "")}
         onChange={onChange("left")}
         unit="px"
         label="X"
@@ -126,7 +135,7 @@ function XYRow({ component }: { component: Component }) {
         data-testid="oc-ins-x"
       />
       <NumberInput
-        value={top}
+        value={top || (bbox ? `${bbox.y}` : "")}
         onChange={onChange("top")}
         unit="px"
         label="Y"

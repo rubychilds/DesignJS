@@ -282,6 +282,64 @@ interface Counters {
   uidCounter: { n: number };
 }
 
+/**
+ * Same-origin iframe content is reachable via `iframe.contentDocument`
+ * (cross-origin throws `SecurityError`). When the source iframe is
+ * same-origin we recursively serialize its document body and re-emit
+ * the result on the cloned iframe's `srcdoc` attribute — preserving
+ * the iframe's host-page positioning while making its content survive
+ * the trip to the canvas. Cross-origin iframes pass through unchanged
+ * with the absolute `src` that `normalizeMediaAttrs` already wrote.
+ *
+ * Closes part of the v0.3 capability gap that ADR-0012 §2 (CDP) was
+ * written to address — specifically the same-origin half. Cross-origin
+ * iframes still need CDP's `DOM.getDocument` to traverse, so they
+ * remain out of reach until §2 ships.
+ *
+ * Each inlined iframe gets a `data-designjs-inlined-iframe="<bytes>"`
+ * marker so the canvas inspector / future tooling can find them. The
+ * inlined HTML counts against the parent capture's size budget; if
+ * there's <4KB of headroom we skip inlining rather than abort the
+ * whole capture for a tracking-pixel iframe with no visible content.
+ */
+const IFRAME_INLINE_HARD_LIMIT = 200 * 1024;
+const IFRAME_INLINE_MIN_HEADROOM = 4 * 1024;
+
+function inlineSameOriginIframe(
+  cloneIframe: HTMLIFrameElement,
+  srcIframe: HTMLIFrameElement,
+  counters: Counters,
+): void {
+  let contentDoc: Document | null = null;
+  try {
+    contentDoc = srcIframe.contentDocument;
+  } catch {
+    // Cross-origin — `contentDocument` accessor throws SecurityError.
+    return;
+  }
+  if (!contentDoc || !contentDoc.body || contentDoc.body.children.length === 0) {
+    return;
+  }
+
+  const remaining = Math.max(0, counters.hardLimit - counters.bytes);
+  const iframeHard = Math.min(IFRAME_INLINE_HARD_LIMIT, remaining);
+  if (iframeHard < IFRAME_INLINE_MIN_HEADROOM) return;
+
+  const result = serialize(contentDoc.body, {
+    mode: "computed",
+    hardLimit: iframeHard,
+    softLimit: Math.floor(iframeHard * 0.8),
+  });
+  if ("error" in result) return;
+
+  cloneIframe.setAttribute("srcdoc", result.html);
+  cloneIframe.setAttribute(
+    "data-designjs-inlined-iframe",
+    String(result.byteCount),
+  );
+  counters.bytes += result.byteCount;
+}
+
 function stripAndInline(
   clone: Element,
   src: Element,
@@ -347,6 +405,19 @@ function stripAndInline(
 
     const ok = stripAndInline(cloneChild, srcChild, src, counters);
     if (!ok) return false;
+  }
+
+  // Iframes are leaves in the DOM-children walk (their content lives
+  // in a separate document). Try to inline same-origin content as
+  // srcdoc; cross-origin falls through with the absolute src already
+  // written by normalizeMediaAttrs.
+  if (
+    src.tagName === "IFRAME" &&
+    src instanceof HTMLIFrameElement &&
+    clone instanceof HTMLIFrameElement
+  ) {
+    inlineSameOriginIframe(clone, src, counters);
+    if (counters.bytes > counters.hardLimit) return false;
   }
 
   return true;

@@ -43,7 +43,14 @@ html, body {
   overflow: visible !important;
 }
 body {
-  background: #ffffff;
+  /* !important for the same reason as margin/padding/overflow above:
+     captured author-CSS can include body-selector backgrounds (commonly
+     from @media (prefers-color-scheme: dark) blocks), which leak into
+     the canvas iframe's body — which is genuinely chrome, not captured
+     content. The captured root carries its own background-color via
+     its inline style, so this only paints the area around the captured
+     content (the "artboard background" the user sees). */
+  background: #ffffff !important;
 }
 [data-oc-shape="text"] {
   display: inline-block !important;

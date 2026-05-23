@@ -28,27 +28,17 @@ import {
  *  - frame.get("component") → wrapper component (addStyle/addAttributes/getAttributes)
  */
 
-interface MockWrapperComponent {
-  addStyle: ReturnType<typeof vi.fn>;
-  addAttributes: ReturnType<typeof vi.fn>;
-  getAttributes: ReturnType<typeof vi.fn>;
-  components: () => { length: number };
-  styles: Record<string, string>;
-  attributes: Record<string, string>;
-}
+// Type alias derived from the factory below: this lets the narrow vi.fn
+// signatures (e.g. `Mock<[next: Record<string,unknown>], …>`) flow through
+// without colliding with the widened `Mock<any[], unknown>` that an explicit
+// `ReturnType<typeof vi.fn>` field would impose. Variance on
+// `mockImplementation` makes that widening unassignable under strict TS.
+type MockFrame = ReturnType<typeof makeFrame>;
 
-interface MockFrame {
-  cid: string;
-  attributes: Record<string, unknown>;
-  get: (k: string) => unknown;
-  set: ReturnType<typeof vi.fn>;
-  wrapper: MockWrapperComponent;
-}
-
-function makeWrapper(childCount = 0): MockWrapperComponent {
+function makeWrapper(childCount = 0) {
   const styles: Record<string, string> = {};
   const attributes: Record<string, string> = {};
-  const wrapper: MockWrapperComponent = {
+  return {
     styles,
     attributes,
     addStyle: vi.fn((s: Record<string, string>) => Object.assign(styles, s)),
@@ -56,7 +46,6 @@ function makeWrapper(childCount = 0): MockWrapperComponent {
     getAttributes: vi.fn(() => attributes),
     components: () => ({ length: childCount }),
   };
-  return wrapper;
 }
 
 function makeFrame(attrs: {
@@ -67,7 +56,7 @@ function makeFrame(attrs: {
   width?: number;
   height?: number;
   childCount?: number;
-}): MockFrame {
+}) {
   const attributes: Record<string, unknown> = {
     name: attrs.name ?? "Untitled",
     x: attrs.x ?? 0,
@@ -76,25 +65,16 @@ function makeFrame(attrs: {
     height: attrs.height ?? 900,
   };
   const wrapper = makeWrapper(attrs.childCount ?? 0);
-  const frame: MockFrame = {
+  return {
     cid: attrs.cid ?? `c${Math.random().toString(36).slice(2, 8)}`,
     attributes,
     wrapper,
     get: (k: string) => (k === "component" ? wrapper : attributes[k]),
     set: vi.fn((next: Record<string, unknown>) => Object.assign(attributes, next)),
   };
-  return frame;
 }
 
-interface MockEditor {
-  editor: Editor;
-  frames: MockFrame[];
-  trigger: ReturnType<typeof vi.fn>;
-  removeFromPage: ReturnType<typeof vi.fn>;
-  addFrame: ReturnType<typeof vi.fn>;
-}
-
-function makeEditor(initialFrames: MockFrame[] = []): MockEditor {
+function makeEditor(initialFrames: MockFrame[] = []) {
   const frames = [...initialFrames];
   const trigger = vi.fn();
   const removeFromPage = vi.fn((f: MockFrame) => {

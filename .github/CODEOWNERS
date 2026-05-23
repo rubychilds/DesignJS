@@ -1,0 +1,5 @@
+# Default owner for everything in the repo.
+# When more maintainers join, add per-package rules above this line, e.g.:
+#   /packages/bridge/        @rubychilds @other-maintainer
+#   /packages/chrome-extension/  @rubychilds
+*  @rubychilds

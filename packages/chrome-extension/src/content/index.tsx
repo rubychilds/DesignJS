@@ -207,7 +207,18 @@ async function capturePage(): Promise<void> {
     walker.stop();
     walker = null;
   }
-  const root = document.body;
+  // Experiment A: capture `<html>` (`documentElement`) instead of
+  // `<body>`. The serializer's INHERITED_DIFF logic was pinning the
+  // captured body to `auto`-resolved pixel widths and inheriting from
+  // a different parent context once it landed in the canvas iframe.
+  // Capturing one level higher preserves the html-level layout context
+  // (`:root` CSS variables, html-level computed colors, etc.) and gives
+  // the captured tree a body inside an html-as-div wrapper — closer to
+  // the source rendering context.
+  //
+  // HEAD subtree is dropped at the serializer level (style-serializer.ts
+  // DROP_ELEMENTS) so its children don't render after the html→div swap.
+  const root = document.documentElement;
   if (!root) {
     window.postMessage(
       { type: "designjs:capture:result", ok: false, error: "empty-input" },
@@ -238,10 +249,16 @@ async function capturePage(): Promise<void> {
   console.log(
     `[designjs] page captured: ${result.nodeCount} nodes, ${(result.byteCount / 1024).toFixed(0)}KB, serialized in ${Math.round(t1 - t0)}ms`,
   );
-  // GrapesJS' HTML parser filters <body> when it appears inside another body's
-  // wrapper component — the content lands in a detached tree. Swap the outer
-  // tag for <div> so the inlined styles still apply but the nesting is legal.
-  const swapped = result.html.replace(/^<body\b/, "<div").replace(/<\/body>$/, "</div>");
+  // GrapesJS' HTML parser filters <html>/<body> when they appear inside
+  // another body's wrapper component — the content lands in a detached
+  // tree. Swap the outer <html> AND the inner <body> for <div> so the
+  // inlined styles still apply but the nesting is legal. Markers retain
+  // the original tag identity for inspector / future tooling.
+  const swapped = result.html
+    .replace(/^<html\b/, '<div data-dj-source-html=""')
+    .replace(/<\/html>$/, "</div>")
+    .replace(/<body\b/g, '<div data-dj-source-body=""')
+    .replace(/<\/body>/g, "</div>");
 
   // Inject allowlisted font-CDN <link> tags right after the outer <div>'s
   // opening tag so the canvas iframe loads them before the captured text

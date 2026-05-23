@@ -113,7 +113,15 @@ const INHERITED_DIFF: readonly string[] = [
  * handlers could execute on the canvas; `src` on scripts would load
  * arbitrary code; `href` on stylesheets would pull external CSS.
  */
-const DROP_ELEMENTS = new Set(["SCRIPT", "NOSCRIPT", "STYLE", "LINK"]);
+// HEAD is dropped because Experiment A (capture-from-html) puts the
+// captured root at <html>, so HEAD becomes a child of the captured
+// tree. After the html/body→div swap the head's children (META,
+// TITLE, etc.) would suddenly land inside a visible <div> and some
+// would render (TITLE in particular shows its text content when
+// outside <head>). Dropping HEAD wholesale keeps the visible tree
+// clean. Element-capture on HEAD itself returns empty-input, which
+// is the right behaviour anyway.
+const DROP_ELEMENTS = new Set(["SCRIPT", "NOSCRIPT", "STYLE", "LINK", "HEAD"]);
 const DROP_ATTRS_PREFIX = ["on"] as const;
 
 /**

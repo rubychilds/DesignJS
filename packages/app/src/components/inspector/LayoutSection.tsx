@@ -23,7 +23,7 @@ import { cn } from "../../lib/utils.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group.js";
 import { NumberInput } from "../ui/number-input.js";
-import { clearStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
+import { clearStyle, readEffectiveStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
 import { FieldGroup, InspectorSection } from "./InspectorSection.js";
 import { SizeField, type SizeMode } from "./controls/SizeField.js";
 import { useInspectorContext } from "./useInspectorContext.js";
@@ -160,8 +160,15 @@ function WHRow({
   selfIsFlex: boolean;
   parentIsFlex: boolean;
 }) {
-  const width = readStyle(component, "width");
-  const height = readStyle(component, "height");
+  // readEffectiveStyle: surface the *rendered* width/height for captured
+  // elements (where styles route through GrapesJS' CSS Manager not the
+  // component model). For elements with no explicit dimension set this
+  // shows the layout-derived px value — e.g. a captured paragraph's
+  // actual width instead of blank. Other Layout properties (min/max,
+  // display, flex/grid) keep readStyle since their "unset" state is
+  // semantically meaningful and computed defaults would mislead.
+  const width = readEffectiveStyle(component, "width");
+  const height = readEffectiveStyle(component, "height");
   const widthNum = parsePx(width);
   const heightNum = parsePx(height);
 

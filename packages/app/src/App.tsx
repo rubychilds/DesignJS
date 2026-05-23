@@ -90,18 +90,48 @@ export function App() {
       style.textContent = PRIMITIVE_BASE_CSS;
       doc.head.appendChild(style);
     };
-    editor.on("canvas:frame:load", ({ window: frameWindow, el }) => {
+    // canvas:frame:load fires once on iframe onload. Some frame creation
+    // paths (re-mount, add-then-mount) didn't reliably trigger it for our
+    // listener; canvas:frame:load:head + :body both also fire on iframe
+    // life-cycle so listening to all three is the belt-and-braces fix.
+    editor.on("canvas:frame:load canvas:frame:load:head canvas:frame:load:body", (ev) => {
+      const { window: frameWindow, el } = (ev ?? {}) as {
+        window?: Window;
+        el?: HTMLIFrameElement;
+      };
       injectPrimitiveCssIntoDoc(frameWindow?.document ?? el?.contentDocument);
     });
     // Cover frames that had already loaded by the time we registered the
-    // listener (the auto-frame races us on initial app boot).
-    editor.Canvas.getFrames().forEach((frame) => {
-      const view = (frame as unknown as {
-        view?: { getWindow?: () => Window | undefined };
-      }).view;
-      const win = view?.getWindow?.();
-      injectPrimitiveCssIntoDoc(win?.document);
-    });
+    // listener (the auto-frame races us on initial app boot), and any
+    // frames whose load events fired before listener attach. A short
+    // polling pass catches re-mounts that re-create the iframe document
+    // without re-firing canvas:frame:load (a known soft spot of GrapesJS
+    // 0.22.x multi-frame).
+    const sweepAllFrames = (): void => {
+      editor.Canvas.getFrames().forEach((frame) => {
+        const fAny = frame as unknown as {
+          view?: {
+            getWindow?: () => Window | undefined;
+            el?: HTMLIFrameElement;
+          };
+        };
+        const win = fAny.view?.getWindow?.();
+        injectPrimitiveCssIntoDoc(win?.document ?? fAny.view?.el?.contentDocument);
+      });
+    };
+    sweepAllFrames();
+    // 5 polls over 2.5s catches the common create-then-mount window;
+    // injection is idempotent (`getElementById` guard) so duplicate calls
+    // are cheap.
+    let sweepCount = 0;
+    const sweepInterval = window.setInterval(() => {
+      sweepAllFrames();
+      sweepCount += 1;
+      if (sweepCount >= 5) window.clearInterval(sweepInterval);
+    }, 500);
+    // Also sweep whenever a new frame is added — covers post-boot
+    // captures (which are the user-visible regression case).
+    editor.on("frame:add", sweepAllFrames);
 
     // Reset the module-scoped variables store so a Vite HMR reload doesn't
     // carry stale entries forward into the rehydration step below.

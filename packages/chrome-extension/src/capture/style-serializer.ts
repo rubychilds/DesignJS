@@ -489,6 +489,23 @@ export function serialize(
   styleEl.textContent = cssText;
   (clone as HTMLElement).insertBefore(styleEl, (clone as HTMLElement).firstChild);
 
+  // Author CSS supplement (A.2). Inserted as firstChild so it appears
+  // *before* the computed-style block in source order — computed wins
+  // on conflicts (cascade is order-based for equal specificity), and
+  // author CSS adds @keyframes / @font-face / ::before / ::after /
+  // @supports rules the computed walker can't see. See
+  // collectAuthorCss for the cascade-note caveat on @media reflow.
+  const author = collectAuthorCss(root.ownerDocument);
+  if (author.cssText) {
+    const authorEl = clone.ownerDocument.createElement("style");
+    authorEl.setAttribute("data-designjs-author", "");
+    authorEl.textContent = author.cssText;
+    (clone as HTMLElement).insertBefore(
+      authorEl,
+      (clone as HTMLElement).firstChild,
+    );
+  }
+
   const html = (clone as HTMLElement).outerHTML;
   const byteCount = new Blob([html]).size;
 
@@ -523,6 +540,95 @@ export function serialize(
  * Returns the empty string when there's nothing to emit; callers can
  * always splice the result in unconditionally.
  */
+/**
+ * Walks `document.styleSheets`, extracts author CSS from same-origin
+ * sheets, and rewrites relative `url(...)` references to absolute so
+ * background images / cursors / etc. still load when the captured HTML
+ * is rendered on the canvas (different origin).
+ *
+ * **Why this matters:** the computed-style walker can only see styles
+ * on real elements via `getComputedStyle`. It misses:
+ *
+ *  - `@keyframes` blocks (animations referenced by `animation-name`)
+ *  - `@font-face` rules beyond the narrow font-CDN allowlist
+ *  - `::before` / `::after` pseudo-element rules (Axios icons,
+ *    Bootstrap-style decorative content, ...)
+ *  - `@media` rules (text only; see "Cascade note" below for the
+ *    practical limitation)
+ *  - `@supports` / `@layer` / `@page` blocks
+ *
+ * **Cascade note:** the author block is emitted *before* the existing
+ * computed-style block in the captured HTML. Both layers use class
+ * selectors with equal specificity, so the later block (computed)
+ * wins on conflicting properties. That means author CSS is additive —
+ * it brings along the things computed misses but does **not** unlock
+ * `@media` reflow (computed values captured at the host viewport
+ * override any narrower-width media rule on the canvas). True
+ * `@media` reflow requires the author/hybrid modes from ADR-0012 §4,
+ * which are deliberately out of scope here.
+ *
+ * **Scope:** same-origin only. Cross-origin sheets throw `SecurityError`
+ * on `.cssRules` access — those need ADR-0012 §2's CDP path. `@import`
+ * and `@charset` rules are skipped (the former would need recursive
+ * fetch we don't do; the latter is noise once inlined).
+ */
+export interface CollectedAuthorCss {
+  cssText: string;
+  collectedSheets: number;
+  skippedSheets: number;
+}
+
+const URL_REWRITE_RE = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+const ABSOLUTE_URL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+
+function absolutizeCssUrls(cssText: string, baseUrl: string): string {
+  return cssText.replace(URL_REWRITE_RE, (match, quote: string, url: string) => {
+    if (ABSOLUTE_URL_RE.test(url)) return match;
+    try {
+      return `url(${quote}${new URL(url, baseUrl).href}${quote})`;
+    } catch {
+      return match;
+    }
+  });
+}
+
+export function collectAuthorCss(doc: Document | null | undefined): CollectedAuthorCss {
+  if (!doc) return { cssText: "", collectedSheets: 0, skippedSheets: 0 };
+  const parts: string[] = [];
+  let collected = 0;
+  let skipped = 0;
+  for (const sheet of Array.from(doc.styleSheets)) {
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      // Cross-origin — `.cssRules` access throws SecurityError. The
+      // sheet's content is only reachable via CDP (ADR-0012 §2).
+      skipped++;
+      continue;
+    }
+    if (!rules) {
+      skipped++;
+      continue;
+    }
+    collected++;
+    const baseUrl = sheet.href ?? doc.baseURI;
+    for (const rule of Array.from(rules)) {
+      // CSSRule.CHARSET_RULE = 2, IMPORT_RULE = 3 — these constants
+      // exist on CSSRule in browsers and jsdom, but guard with a
+      // numeric check for forward-compat.
+      const t = rule.type;
+      if (t === 2 || t === 3) continue;
+      parts.push(absolutizeCssUrls(rule.cssText, baseUrl));
+    }
+  }
+  return {
+    cssText: parts.join("\n"),
+    collectedSheets: collected,
+    skippedSheets: skipped,
+  };
+}
+
 export function collectFontLinks(head: HTMLHeadElement | null | undefined): string {
   if (!head) return "";
   const out: string[] = [];

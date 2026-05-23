@@ -182,7 +182,16 @@ function LayerRow({ component, depth, editor, selected }: LayerRowProps) {
     [component, tick],
   );
 
-  const [expanded, setExpanded] = useState(true);
+  // Default-collapsed beyond depth 3 to keep the layer tree responsive
+  // on captured pages. A captured Python docs page has ~1700 deeply
+  // nested elements; defaulting every LayerRow to expanded:true makes
+  // the whole tree render thousands of React components on every
+  // selection change (`selected` prop propagates down through every
+  // row), which causes a visible 0.5-1s lag when clicking a layer.
+  // Authored pages typically have <100 elements and barely notice —
+  // depth 3 covers the top of most real component trees. Users
+  // explicitly expand deeper subtrees to navigate.
+  const [expanded, setExpanded] = useState(depth < 3);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
 

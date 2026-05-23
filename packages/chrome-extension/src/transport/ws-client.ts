@@ -23,7 +23,13 @@ export interface ConnectOptions {
 }
 
 export interface BridgeConnection {
-  send(payload: { tool: string; params?: Record<string, unknown> }): Promise<unknown>;
+  send(payload: {
+    tool: string;
+    params?: Record<string, unknown>;
+    /** Per-call timeout override. Default 15s; long-running tools (large
+     * `add_components` payloads, full GrapesJS reparse) can request more. */
+    timeoutMs?: number;
+  }): Promise<unknown>;
   currentStatus(): BridgeStatus;
   dispose(): void;
 }
@@ -136,17 +142,21 @@ export function connectToBridge(opts: ConnectOptions = {}): BridgeConnection {
         tool: payload.tool,
         params: payload.params ?? {},
       };
+      const timeoutMs = payload.timeoutMs ?? 15_000;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
         socket!.send(JSON.stringify(request));
         // Fire-and-forget timeout so a silently-dropped response doesn't
-        // hang forever. 15s matches the bridge's get_screenshot budget.
+        // hang forever. Default 15s matches the bridge's get_screenshot
+        // budget. Whole-page captures pass a longer value for the main
+        // add_components — GrapesJS' parse + render of a 2MB+ payload
+        // (Wikipedia-class articles) can run well past 15s.
         setTimeout(() => {
           if (pending.has(id)) {
             pending.delete(id);
             reject(new Error(`bridge request "${payload.tool}" timed out`));
           }
-        }, 15_000);
+        }, timeoutMs);
       });
     },
     currentStatus: () => status,

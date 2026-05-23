@@ -110,18 +110,40 @@ export type JsxMode = "tailwind" | "inline";
  * so we parse `editor.getCss()` output, pluck per-id rules, and merge them into
  * the HTML before handing it to the JSX walker.
  *
- * Limitations: only simple `#id { ... }` selectors are handled. Compound selectors
- * (`#id:hover`, `@media (...)`, descendant selectors) are ignored — they would
- * not have a meaningful inline-style equivalent anyway.
+ * Limitations: only simple `#id { ... }` selectors at the top level are
+ * inlined. Compound selectors (`#id:hover`, descendant selectors) and any
+ * rules nested inside at-rules (`@media`, `@supports`, `@container`,
+ * `@layer`, etc.) are intentionally ignored — they have no unconditional
+ * inline-style equivalent.
  */
 export function mergeStylesIntoHtml(html: string, css: string): string {
   if (!css.trim()) return html;
   const idStyles = new Map<string, string>();
-  const ruleRe = /([^{}]+)\{([^{}]+)\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = ruleRe.exec(css)) !== null) {
-    const selector = match[1]!.trim();
-    const decls = match[2]!.trim();
+  // Walk top-level rules with explicit brace depth. A regex-only pass would
+  // happily match a `#id { ... }` block sitting inside an `@media (...) { ... }`
+  // wrapper and inline media-conditional styles at every viewport — see
+  // QA-1 in docs/qa-followups.md.
+  let i = 0;
+  while (i < css.length) {
+    while (i < css.length && /\s/.test(css[i]!)) i++;
+    if (i >= css.length) break;
+    const selStart = i;
+    while (i < css.length && css[i] !== "{" && css[i] !== "}") i++;
+    if (i >= css.length || css[i] === "}") break;
+    const selector = css.slice(selStart, i).trim();
+    i++; // consume opening {
+    const bodyStart = i;
+    let depth = 1;
+    while (i < css.length && depth > 0) {
+      const ch = css[i]!;
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      if (depth > 0) i++;
+    }
+    const body = css.slice(bodyStart, i);
+    i++; // consume closing }
+    if (selector.startsWith("@")) continue;
+    const decls = body.trim();
     if (!decls) continue;
     const idMatch = /^#([\w-]+)$/.exec(selector);
     if (!idMatch) continue;

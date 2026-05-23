@@ -251,16 +251,28 @@ describe("mergeStylesIntoHtml", () => {
     expect(merged).not.toContain("color: red");
   });
 
-  it("LIMITATION: inner @media rules leak through because the regex doesn't track nesting", () => {
-    // The source's per-rule regex matches each `{ ... }` block independently
-    // and accepts any `#id { ... }` it finds — including those nested inside
-    // `@media (...) { ... }` blocks. The doc-comment claims @media is ignored,
-    // but in practice the inner rule's declarations get inlined.
+  it.each([
+    ["@media", `@media (min-width: 600px) { #abc { color: green; } }`],
+    ["@supports", `@supports (display: grid) { #abc { color: green; } }`],
+    ["@container", `@container (min-width: 400px) { #abc { color: green; } }`],
+    ["@layer", `@layer utilities { #abc { color: green; } }`],
+  ])("skips id rules nested inside %s blocks", (_label, css) => {
+    // Top-level walk uses brace-depth tracking + a leading-@ skip so
+    // conditional rules don't get applied unconditionally. See QA-1.
+    const merged = mergeStylesIntoHtml(`<div id="abc"></div>`, css);
+    expect(merged).not.toContain("color: green");
+    expect(merged).toBe(`<div id="abc"></div>`);
+  });
+
+  it("still applies a sibling top-level rule when an at-rule is also present", () => {
+    // Sanity: at-rule skipping doesn't break parsing of subsequent top-level
+    // rules in the same stylesheet.
     const merged = mergeStylesIntoHtml(
       `<div id="abc"></div>`,
-      `@media (min-width: 600px) { #abc { color: green; } }`,
+      `@media (min-width: 600px) { #abc { color: green; } } #abc { padding: 8px; }`,
     );
-    expect(merged).toContain("color: green");
+    expect(merged).not.toContain("color: green");
+    expect(merged).toContain("padding: 8px");
   });
 
   it("merges multiple rules for the same id", () => {

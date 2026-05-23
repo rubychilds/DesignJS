@@ -27,16 +27,20 @@ const TAILWIND_V4_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 export const PRIMITIVE_BASE_CSS = `
 html, body {
   height: 100%;
-  /* !important on margin/padding wins the cascade against captured
-     author-CSS rules that target body/html selectors. Python docs'
-     stylesheets include 'body { margin: 0 18px }', which would
-     otherwise route through GrapesJS' CSS Manager and push the
-     captured content off the artboard's top-left corner.
+  /* !important on margin/padding/overflow wins the cascade against
+     captured author-CSS rules that target body/html selectors. E.g.
+     Python docs' stylesheets include 'body { margin: 0 18px }' which
+     pushed captured content off the artboard's top-left, and
+     'body { overflow: hidden }' which clipped wide content (long
+     headings, code blocks) at the body's right edge. body in the
+     canvas iframe is genuinely chrome — not the captured body — so
+     these aren't captured-content semantics being overridden.
      The right long-term fix is selector-scoping in collectAuthorCss
      (rewrite top-level body/html/:root to our [data-dj-source-*]
      markers); this is the cheap and obviously-correct intermediate. */
   margin: 0 !important;
   padding: 0 !important;
+  overflow: visible !important;
 }
 body {
   background: #ffffff;

@@ -154,9 +154,15 @@ export function FillSection({ component }: { component: Component }) {
   // readEffectiveStyle: prefer set styles, fall back to computed when
   // captured-page elements route their styles via GrapesJS' CSS Manager
   // instead of the component model (extension capture path).
+  //
+  // textColor intentionally uses readStyle (not effective) — when the
+  // element has no explicit color, falling back to computed returns
+  // the inherited value (often black), which renders as "100% opacity
+  // color set" in the picker even though the user hasn't set anything.
+  // Better to show empty / unset for inherited color.
   const bgImage = readEffectiveStyle(component, "background-image");
   const bgColor = readEffectiveStyle(component, "background-color");
-  const textColor = readEffectiveStyle(component, "color");
+  const textColor = readStyle(component, "color");
   const parsed = React.useMemo(() => {
     if (isText) {
       if (!textColor) return [];

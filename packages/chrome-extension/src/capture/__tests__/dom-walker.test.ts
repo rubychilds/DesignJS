@@ -32,7 +32,10 @@ describe("createWalker", () => {
       (s) => s.toString() === "Symbol(impl)",
     );
     if (implSym) {
-      (ev as unknown as Record<symbol, { isTrusted: boolean }>)[implSym].isTrusted = true;
+      // noUncheckedIndexedAccess makes Record[symbol] T|undefined; we just
+      // verified implSym is a present own-symbol, so a non-null assertion
+      // is correct here.
+      (ev as unknown as Record<symbol, { isTrusted: boolean }>)[implSym]!.isTrusted = true;
     }
   };
 

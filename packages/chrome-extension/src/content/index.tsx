@@ -154,6 +154,54 @@ function stopCapture(): void {
  */
 const PAGE_CAPTURE_HARD_LIMIT = 2 * 1024 * 1024;
 
+/**
+ * Modern marketing sites (Next.js / Astro / React with `next/dynamic`
+ * or `loading="lazy"` + IntersectionObserver) only mount below-fold
+ * sections once they scroll into view. Without this pass, the
+ * serializer reaches `document.body` at whatever the user scrolled to
+ * and captures only the mounted portion — anything below the user's
+ * viewport at click-time is missing from the DOM and therefore from
+ * the capture.
+ *
+ * Scroll to the bottom in repeated ticks, waiting for `scrollHeight`
+ * to stabilise (two consecutive ticks with no growth), then snap back
+ * to the user's original scroll position so the page doesn't visibly
+ * jump after capture completes. Capped at ~6s of scrolling to avoid
+ * runaway on infinite-scroll feeds; users hitting that ceiling will
+ * just get an honest "what was reachable in 6s" capture.
+ *
+ * Matches the pre-serialize discipline that SingleFile / html.to.design
+ * implement (epic-8-followups §6 reading list). Closes the lazy-mount
+ * half of the v0.3 whole-page capture gap.
+ */
+async function scrollToBottomAndSettle(): Promise<void> {
+  const scroller = document.scrollingElement ?? document.documentElement;
+  if (!scroller) return;
+  const originalScroll = scroller.scrollTop;
+  const MAX_TICKS = 30;
+  const TICK_MS = 200;
+  const STABLE_THRESHOLD = 2;
+  let lastHeight = scroller.scrollHeight;
+  let stableTicks = 0;
+  for (let i = 0; i < MAX_TICKS; i++) {
+    scroller.scrollTo(0, scroller.scrollHeight);
+    await new Promise((r) => setTimeout(r, TICK_MS));
+    const height = scroller.scrollHeight;
+    if (height === lastHeight) {
+      stableTicks++;
+      if (stableTicks >= STABLE_THRESHOLD) break;
+    } else {
+      stableTicks = 0;
+      lastHeight = height;
+    }
+  }
+  // Restore so the user isn't visually surprised. The screenshot
+  // stitcher manages its own scroll for tile capture, so this snap-back
+  // doesn't affect the backplate.
+  scroller.scrollTo(0, originalScroll);
+  await new Promise((r) => setTimeout(r, 100));
+}
+
 async function capturePage(): Promise<void> {
   if (walker) {
     walker.stop();
@@ -167,6 +215,9 @@ async function capturePage(): Promise<void> {
     );
     return;
   }
+  // Force lazy-mounted sections to materialise before we serialise.
+  // See scrollToBottomAndSettle docstring.
+  await scrollToBottomAndSettle();
   const t0 = performance.now();
   const result = serialize(root, { hardLimit: PAGE_CAPTURE_HARD_LIMIT, mode: "computed" });
   const t1 = performance.now();

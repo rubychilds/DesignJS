@@ -8,8 +8,7 @@
  * - Relays capture payloads from the content script → canvas.
  * - On extension-icon click, asks the active tab's content script to
  *   toggle the injected overlay. No browser-action popup is used —
- *   see ADR-0011 §UX and packages/chrome-ext-orbis for the reference
- *   pattern.
+ *   see ADR-0011 §UX for the rationale.
  *
  * Kept deliberately thin — the heavy lifting (DOM walk, style
  * serializer, overlay rendering) lives in the content script.
@@ -73,13 +72,44 @@ function buildBackplateHtml(dataUrl: string): string {
   );
 }
 
-async function relayCapture(msg: {
-  html: string;
-  newArtboard?: { name?: string; width: number; height: number };
-  /** Optional full-page screenshot data URL — ADR-0012 §1 hybrid backplate. */
-  screenshotDataUrl?: string;
-}): Promise<unknown> {
+type RenderingSub =
+  | "creating-artboard"
+  | "adding-backplate"
+  | "adding-components"
+  | "fitting";
+
+function postRenderingPhase(
+  tabId: number | undefined,
+  sub: RenderingSub,
+  nodeCount?: number,
+  byteCount?: number,
+): void {
+  if (tabId == null) return;
+  // Fire-and-forget; if the tab closed mid-capture, ignore the rejection.
+  chrome.tabs
+    .sendMessage(tabId, {
+      type: "designjs:capture:progress",
+      phase: "rendering",
+      sub,
+      nodeCount,
+      byteCount,
+    })
+    .catch(() => {});
+}
+
+async function relayCapture(
+  msg: {
+    html: string;
+    newArtboard?: { name?: string; width: number; height: number };
+    /** Optional full-page screenshot data URL — ADR-0012 §1 hybrid backplate. */
+    screenshotDataUrl?: string;
+    nodeCount?: number;
+    byteCount?: number;
+  },
+  tabId: number | undefined,
+): Promise<unknown> {
   if (msg.newArtboard) {
+    postRenderingPhase(tabId, "creating-artboard", msg.nodeCount, msg.byteCount);
     const { artboard } = (await bridge.send({
       tool: "create_artboard",
       params: msg.newArtboard,
@@ -90,6 +120,7 @@ async function relayCapture(msg: {
     // the wrapper; document order matters because the artboard's
     // wrapper isn't itself a stacking context.
     if (msg.screenshotDataUrl) {
+      postRenderingPhase(tabId, "adding-backplate", msg.nodeCount, msg.byteCount);
       try {
         await bridge.send({
           tool: "add_components",
@@ -105,14 +136,20 @@ async function relayCapture(msg: {
       }
     }
 
+    postRenderingPhase(tabId, "adding-components", msg.nodeCount, msg.byteCount);
     const addResult = await bridge.send({
       tool: "add_components",
       params: { html: msg.html, artboardId: artboard.id },
+      // 90s — GrapesJS parse + paint on Wikipedia-class articles (~2-4MB
+      // payload, ~2k nodes) regularly runs 20-60s. Default 15s falsely
+      // fails captures that the canvas would still complete.
+      timeoutMs: 90_000,
     });
     // fit_artboard measures the iframe content and resizes the frame
     // accordingly. Best-effort — if it fails (iframe slow to mount,
     // content not measurable) we still return the add_components result
     // so the capture isn't lost.
+    postRenderingPhase(tabId, "fitting", msg.nodeCount, msg.byteCount);
     try {
       await bridge.send({
         tool: "fit_artboard",
@@ -123,12 +160,13 @@ async function relayCapture(msg: {
     }
     return addResult;
   }
+  postRenderingPhase(tabId, "adding-components", msg.nodeCount, msg.byteCount);
   return bridge.send({ tool: "add_components", params: { html: msg.html } });
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "capture:send") {
-    relayCapture(msg)
+    relayCapture(msg, sender.tab?.id)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((err: Error) => sendResponse({ ok: false, error: err.message }));
     return true; // async response

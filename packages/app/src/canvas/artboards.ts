@@ -117,30 +117,37 @@ export function listArtboards(editor: Editor): FrameData[] {
 
 /**
  * Given a desired width/height, suggest a canvas-world position that doesn't
- * overlap any existing artboard. Places new artboards to the right of the
- * existing set, separated by DEFAULT_ARTBOARD_GAP.
+ * overlap any existing artboard. Places new artboards on a horizontal "top
+ * row" strip (`y: 0`) extending rightward from the rightmost-edge of any
+ * existing artboard, separated by DEFAULT_ARTBOARD_GAP.
+ *
+ * Pinning every placement to `y: 0` is deliberate: prior versions tracked
+ * the y of whichever existing artboard happened to be rightmost, which
+ * caused vertical drift across multiple captures of varying heights. The
+ * "captures pile on top of each other" user report traced to that drift —
+ * with one tall existing artboard, the next capture would land far below
+ * the visible canvas area. Top-row placement is predictable and easy to
+ * find via Cmd+0 fit-to-content.
  */
 export function findPlacement(
   editor: Editor,
-  width: number,
-  height: number,
+  // width / height kept in the signature for API stability (callers in
+  // handlers.ts + createArtboard pass them) but no longer consulted —
+  // top-row placement doesn't depend on the new artboard's dimensions.
+  _width: number,
+  _height: number,
 ): { x: number; y: number } {
   const existing = listArtboards(editor);
   if (existing.length === 0) return { x: 0, y: 0 };
 
-  // rightmost edge across all artboards
   let rightmost = -Infinity;
-  let topOfRightmost = 0;
   for (const f of existing) {
     const right = f.x + f.width;
-    if (right > rightmost) {
-      rightmost = right;
-      topOfRightmost = f.y;
-    }
+    if (right > rightmost) rightmost = right;
   }
   return {
     x: rightmost + DEFAULT_ARTBOARD_GAP,
-    y: topOfRightmost,
+    y: 0,
   };
 }
 

@@ -108,6 +108,52 @@ would help establish whether the metric is meaningful on simpler pages.
 profile is no worse. Move on to Experiments B + C (parser-strip root cause —
 the width/height drift at 50/50 is the actual bug now).
 
+### Experiment C — pre-inline styles via `mode: "inline"` (commit `2048128`)
+
+**Qualitative result (user-confirmed):** *"Looks a lot better now."*
+
+**Quantitative result — major win:**
+
+| Metric | Baseline | After A | **After C** | Delta vs A |
+|---|---|---|---|---|
+| Pixel diff | 9.39%* | 27.81% | **12.90%** | -14.9 |
+| Sample property mismatches | 247 | 269 | **102** | **-167 (-62%)** ✓ |
+| color drift (50 sample) | 47 | 43 | **<6** | dropped out of top 5 ✓ |
+| width drift | 49 | 50 | **<6** | dropped out of top 5 ✓ |
+| height drift | 49 | 50 | **<6** | dropped out of top 5 ✓ |
+| Paired by UID | 1705/1755 | 1705/1755 | **1755/1755** | 100% pairing ✓ |
+| Captured rules | 6,947 | 6,948 | 10,329 | +3.4k (inline styles in CSS Manager) |
+| Captured body height | 10,853 | 11,019 | **10,903** | within +50px of source |
+
+\* baseline pixel diff was artificially low — mostly white-on-white match
+
+**Top remaining mismatches:** display 12, font-family 8, background-color 8,
+overflow 6, white-space 6 — all smaller, addressable.
+
+**Architectural insight refuted from earlier hypothesis.** The 50/50 width
+and height drift was NOT primarily caused by `getComputedStyle` resolving
+`auto` to pixel values (though that's still partly true). It was caused by
+GrapesJS' `<style>`-block explosion + CSS Manager cascade reorganization
+fighting our hoisted classes. Moving styles to inline `style=""` attributes
+bypasses that machinery entirely — the styles apply cleanly per-element
+with no cascade rebinding. Width / height / color drift effectively
+*disappear* from the top mismatchers.
+
+**Decision:** C stays. Big win. We're at 12.90% pixel diff (well under the
+25% abandon threshold, close to the 10% target). The per-element drift
+metric — the truer one — is at 102 sampled mismatches, down 58% from
+baseline. Per-stop-condition: "commit to current pipeline if A+B+C lands
+Python docs ≤10% pixel diff AND median across 5-page fixture is ≤15%" — we
+haven't run B yet and don't have the 5-page baseline, but on Python docs
+alone we're already close.
+
+### Experiment B — *not yet run*
+
+Custom GrapesJS `parserHtml` / `parserCss` overrides. With C succeeding so
+strongly by *avoiding* the GrapesJS parser/cascade path, the marginal value
+of B (which would re-configure that path) is now lower. Likely deferred —
+revisit if multi-page baseline shows worst-case pages still >25% diff.
+
 ## Stop conditions (from the plan)
 
 - **Commit to current pipeline** if A+B+C lands Python docs ≤10% pixel diff AND median across the eventual 5-page fixture is ≤15%.

@@ -461,7 +461,25 @@ export function serialize(
     uidCounter: { n: 0 },
   };
 
-  const ok = stripAndInline(clone, root, root.parentElement, counters);
+  // Pass `null` as parentSrc for the captured root so buildInlineStyle's
+  // INHERITED_DIFF logic emits ALL inherited properties (color, font-*,
+  // line-height, letter-spacing, etc.) on the root unconditionally.
+  //
+  // Why: the source root inherits these from its source-page parent
+  // (typically <html> + <body>, sharing the same color baseline), so a
+  // naive parent-diff at capture time finds them equal and emits
+  // nothing. But in the canvas iframe the captured root is reparented
+  // under the GrapesJS default <body> with a DIFFERENT baseline
+  // (light theme regardless of source). Dark-themed sites with white
+  // text then inherit black on light — text becomes invisible against
+  // the captured backgrounds.
+  //
+  // Passing parentSrc=null forces `parentV` to "" inside buildInlineStyle,
+  // which is never equal to any real computed value, so every inherited
+  // property gets pinned on the root. Descendants still inherit-diff
+  // against their own parents in the captured tree, so payload growth
+  // is bounded.
+  const ok = stripAndInline(clone, root, null, counters);
   if (!ok) {
     return {
       error: "too-large",

@@ -100,3 +100,44 @@ describe("serialize — vertical-align", () => {
     expect(result.html).toMatch(/vertical-align:\s*middle/);
   });
 });
+
+describe("serialize — initial-value skip (table/list/vertical-align)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  // These properties have non-empty initial values that getComputedStyle
+  // returns on EVERY element regardless of context. Without the skip,
+  // every captured element grew ~250 bytes — Wikipedia Love crossed 8MB.
+  // Initial-value skip is fidelity-safe for non-inherited properties:
+  // canvas-iframe elements without an explicit value resolve to the same
+  // spec initial.
+  it("skips vertical-align:baseline (spec initial)", () => {
+    document.body.innerHTML = `<div id="root">x</div>`;
+    const result = serialize(document.getElementById("root")!, { mode: "inline" });
+    if ("error" in result) throw new Error(`unexpected: ${result.error}`);
+    expect(result.html).not.toMatch(/vertical-align/);
+  });
+
+  it("skips border-collapse:separate (spec initial)", () => {
+    document.body.innerHTML = `<div id="root">x</div>`;
+    const result = serialize(document.getElementById("root")!, { mode: "inline" });
+    if ("error" in result) throw new Error(`unexpected: ${result.error}`);
+    expect(result.html).not.toMatch(/border-collapse/);
+  });
+
+  it("skips list-style-type:disc (spec initial)", () => {
+    document.body.innerHTML = `<div id="root">x</div>`;
+    const result = serialize(document.getElementById("root")!, { mode: "inline" });
+    if ("error" in result) throw new Error(`unexpected: ${result.error}`);
+    expect(result.html).not.toMatch(/list-style-type/);
+  });
+
+  it("still emits when value differs from initial", () => {
+    document.body.innerHTML = `<div id="root" style="list-style-type: square; vertical-align: top">x</div>`;
+    const result = serialize(document.getElementById("root")!, { mode: "inline" });
+    if ("error" in result) throw new Error(`unexpected: ${result.error}`);
+    expect(result.html).toMatch(/list-style-type:\s*square/);
+    expect(result.html).toMatch(/vertical-align:\s*top/);
+  });
+});

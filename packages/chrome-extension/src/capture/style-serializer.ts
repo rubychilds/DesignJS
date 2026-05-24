@@ -304,6 +304,34 @@ function normalizeMediaAttrs(clone: Element, src: Element): void {
  */
 const STRIP_MARGIN_PADDING_TAGS = new Set(["HTML", "BODY"]);
 
+/**
+ * Spec initial values for the table / list / vertical-align properties.
+ * These return non-empty computed values on every element (`vertical-align:
+ * baseline`, `border-collapse: separate`, `list-style-type: disc`, etc.)
+ * regardless of whether the property actually applies to that element's
+ * layout. Without this skip-table, every captured element grew by ~250
+ * bytes after these properties were added — Wikipedia Love ballooned past
+ * the 8MB whole-page cap.
+ *
+ * Skipping the initial value is fidelity-safe for non-inherited properties:
+ * any captured element without our explicit emission will resolve to the
+ * same spec initial in the canvas iframe (no parent rule to inherit from).
+ * Non-default values still emit normally.
+ *
+ * Don't extend this map to other properties without confirming the canvas
+ * iframe's UA stylesheet also resolves to the same initial — GrapesJS or
+ * a CSS reset could overrule the spec initial for the wider property set.
+ */
+const NON_INHERITED_INITIAL_VALUES = new Map<string, string>([
+  ["vertical-align", "baseline"],
+  ["border-collapse", "separate"],
+  ["border-spacing", "0px 0px"],
+  ["caption-side", "top"],
+  ["empty-cells", "show"],
+  ["list-style-type", "disc"],
+  ["list-style-position", "outside"],
+]);
+
 function buildInlineStyle(
   computed: CSSStyleDeclaration,
   parentComputed: CSSStyleDeclaration | null,
@@ -332,6 +360,8 @@ function buildInlineStyle(
       // default and skipping is safe.
       continue;
     }
+    // Property-specific initial-value skip — see NON_INHERITED_INITIAL_VALUES.
+    if (NON_INHERITED_INITIAL_VALUES.get(prop) === v) continue;
     parts.push(`${prop}:${v}`);
   }
 

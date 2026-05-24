@@ -132,6 +132,22 @@ const NON_INHERITED: readonly string[] = [
   "column-count", "column-width", "column-fill", "column-span",
   "column-rule-color", "column-rule-style", "column-rule-width",
   "break-inside", "break-before", "break-after",
+  // Table layout — Wikipedia infoboxes, MDN doc tables, Bootstrap demos.
+  // empty-cells controls UA-default border-rendering on empty <td>; caption
+  // -side controls <caption> placement above/below; border-collapse +
+  // border-spacing + table-layout are the load-bearing trio for tables.
+  "border-collapse", "border-spacing", "table-layout",
+  "caption-side", "empty-cells",
+  // List + CSS counters. list-style-type renders bullets (disc/decimal/
+  // alpha/etc); list-style-position controls inside/outside marker layout;
+  // list-style-image is the SVG/PNG bullet override. counter-increment +
+  // counter-reset drive CSS-counter-based numbering (e.g. nested ordered
+  // lists, figure numbering).
+  "list-style-type", "list-style-position", "list-style-image",
+  "counter-increment", "counter-reset", "counter-set",
+  // vertical-align — load-bearing on table cells (cell content alignment)
+  // and inline-block layouts (icon + label rows). Non-inherited per spec.
+  "vertical-align",
 ];
 
 /**

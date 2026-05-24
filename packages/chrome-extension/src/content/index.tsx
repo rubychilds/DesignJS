@@ -368,7 +368,14 @@ async function capturePage(): Promise<void> {
     },
     (bgResponse: { ok: boolean; error?: string } | undefined) => {
       if (bgResponse?.ok !== true) {
-        console.error("[designjs] bridge rejected page capture:", bgResponse);
+        // Inline the error text so the message is informative even when
+        // DevTools collapses the object arg (Chrome's brief-view shows
+        // `[object Object]` rather than expanding by default).
+        const errText = bgResponse?.error ?? "no response from background";
+        console.error(
+          `[designjs] bridge rejected page capture: ${errText}`,
+          bgResponse,
+        );
       }
       window.postMessage(
         {

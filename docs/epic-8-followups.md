@@ -25,6 +25,13 @@ Operational working doc for the v0.3 Chrome extension. Strategic direction for v
 | Style-dedup hoist for mode:"inline" (caps GrapesJS CSS Manager surface at 100 classes) | 2026-05-23 | `124c6f3` |
 | CSS Multi-column Layout properties (fixes Wikipedia footer column collapse) | 2026-05-23 | `eacfb6d` |
 | Inline bridge-rejection error text in console.error | 2026-05-23 | `d866fe9` |
+| **D0** capture-diff walk-alignment + tagMatch invariant (revealed 78% of Wikipedia "drift" was diff-tool noise) | 2026-05-23 | `bbd7da3` |
+| Style-dedup verified — 15,508 → 841 CSS rules, 18× reduction (DEDUP-VERIFY) | 2026-05-23 | measurement only |
+| **T1** Table-layout properties (`border-collapse`, `border-spacing`, `table-layout`, `caption-side`, `empty-cells`) | 2026-05-23 | `8ad1c58` |
+| **L1** List + counter properties (`list-style-*`, `counter-increment`, `counter-reset`, `counter-set`) | 2026-05-23 | `8ad1c58` |
+| `vertical-align` non-inherited property | 2026-05-23 | `8ad1c58` |
+| Initial-value skip for table/list/vertical-align defaults (fixes the 8MB overflow the bare T1+L1 caused) | 2026-05-23 | `af78be4` |
+| **OBS** Reworded "Selection too large" error for whole-page captures | 2026-05-23 | `cb84a7e` |
 
 **Still open — fidelity gaps surfaced by the Wikipedia Love multi-page baseline.** ROI-ranked in §9 below; this list groups by owner doc.
 
@@ -253,15 +260,18 @@ SingleFile / Onlook / Blipshot / screenshot-capture / chrome-devtools-mcp.
 ROI = (fidelity / UX gain) ÷ (effort + risk). Effort estimates assume one
 focused day = `S`, two-three days = `M`, week or more = `L`.
 
-### Tier 1 — high-ROI, low effort (next sprint candidates)
+### Tier 1 — high-ROI, low effort
 
-| ID | Gap | Why now | Effort | Risk |
-|----|-----|---------|-------:|-----:|
-| **T1** | Table-layout properties (`border-collapse`, `border-spacing`, `table-layout`, `caption-side`, `empty-cells`) | Same shape as the multi-column fix shipped today. Wikipedia / docs / Bootstrap rely on tables for layout. Likely closes a chunk of the `display` / `padding-bottom` drift in the Wikipedia top-5. | S | low |
-| **L1** | List-style properties (`list-style-type`, `-position`, `-image`, `marker-*`, `counter-*`, `counter-increment`, `counter-reset`) | Every Wikipedia / MDN article has bullets and numbered lists; right now markers fall back to UA defaults. | S | low |
-| **OBS** | "Selection too large. Try capturing a smaller section." misfires for whole-page captures (there's no smaller section the user wanted). Reword to phase-aware. | Trivial UX correctness. | XS | none |
-| **F1** | Google Fonts name fallback ([font-preservation-plan.md](./font-preservation-plan.md) Phase 1). | Closes the 26 font-family mismatches on Wikipedia. Already specced + ready to implement. | M | low |
-| **DEDUP-VERIFY** | Run `capture-diff` post-dedup on Wikipedia Love → confirm `capturedRules` dropped from 15,508 (target 2-3k). If not, revert dedup. | Settles whether `124c6f3` is pulling weight. | XS | none — measurement-only |
+| ID | Gap | Why now | Effort | Status |
+|----|-----|---------|-------:|--------|
+| **T1** | Table-layout properties (`border-collapse`, `border-spacing`, `table-layout`, `caption-side`, `empty-cells`) | Same shape as the multi-column fix. Wikipedia / docs / Bootstrap rely on tables for layout. | S | ✅ Shipped `8ad1c58` + initial-value skip `af78be4` |
+| **L1** | List-style properties (`list-style-type`, `-position`, `-image`, `counter-increment`, `counter-reset`, `counter-set`) | Every Wikipedia / MDN article has bullets and numbered lists. | S | ✅ Shipped `8ad1c58` |
+| **OBS** | "Selection too large" error reworded for whole-page captures | Trivial UX correctness. | XS | ✅ Shipped `cb84a7e` |
+| **D0** (NEW) | capture-diff walk alignment — source-side and captured-side walks diverged; 78% of Wikipedia "drift" was diff-tool noise | All future fidelity measurements depend on this | S | ✅ Shipped `bbd7da3` |
+| **DEDUP-VERIFY** | Run `capture-diff` post-dedup on Wikipedia Love | Settle whether `124c6f3` is pulling weight. | XS | ✅ Verified — 15,508 → 841 CSS rules (18× reduction) |
+| **F1** | Google Fonts name fallback ([font-preservation-plan.md](./font-preservation-plan.md) Phase 1) | Closes the font-family mismatches on non-CDN-served Google Fonts. Specced. | M | ⏳ In progress |
+| **D1** | The 7 `<a>` `flex → inline` mismatches — clean signal post-D0 | Real fidelity bug, root cause unclear (cascade fight hypothesis) | S | ⏳ In progress |
+| **GrapesJS doc PR** | Upstream PR documenting the wrapper-`stylable` workaround for HTML import | Easy goodwill, builds community presence before harder upstream PRs | S | ⏳ In progress (style guide collected) |
 
 ### Tier 2 — medium-ROI, medium effort
 

@@ -93,13 +93,26 @@ async function isCanvasReachable() {
 }
 
 /**
- * Walk source page's document.body depth-first preorder over children,
+ * Walk source page's documentElement depth-first preorder over children,
  * skipping DROP_TAGS, stamping `data-source-uid` to match serializer
  * order. Returns per-element data we'll pair against the captured side.
+ *
+ * CRITICAL: this walk must mirror style-serializer.ts `stripAndInline`
+ * EXACTLY or paired UIDs will compare different elements (silent garbage
+ * out). Three things must match:
+ *   1. Entry point: `documentElement`, not `body`. Serializer Experiment
+ *      A captures `<html>` not `<body>` — html gets uid 0, body gets uid 1.
+ *   2. DROP_TAGS_SET must equal serializer's DROP_ELEMENTS: SCRIPT,
+ *      NOSCRIPT, STYLE, LINK, HEAD. The HEAD drop is the easy one to miss.
+ *   3. Iteration must be `el.children` (Element-only, preorder); not
+ *      childNodes (which includes text nodes the serializer doesn't UID).
+ * The tagMatch invariant in run() catches divergences post-pair.
  */
 function collectSource() {
   /* eslint-env browser */
-  const DROP_TAGS_SET = new Set(["STYLE", "SCRIPT", "NOSCRIPT", "LINK"]);
+  // MUST equal DROP_ELEMENTS in packages/chrome-extension/src/capture/
+  // style-serializer.ts (currently SCRIPT, NOSCRIPT, STYLE, LINK, HEAD).
+  const DROP_TAGS_SET = new Set(["SCRIPT", "NOSCRIPT", "STYLE", "LINK", "HEAD"]);
   const FINGERPRINT = [
     "display", "position", "visibility", "overflow",
     "width", "height", "min-width", "min-height", "max-width", "max-height",
@@ -133,7 +146,7 @@ function collectSource() {
     });
     for (const child of el.children) walk(child);
   }
-  if (document.body) walk(document.body);
+  if (document.documentElement) walk(document.documentElement);
   const totalSheetRules = (() => {
     let n = 0;
     for (const s of document.styleSheets) {
@@ -210,6 +223,21 @@ function collectCaptured(iframeIndex) {
   };
 }
 
+// Tags the serializer rewrites during the body/html → div swap (see
+// content/index.tsx). Source-side <html>/<body> at uid 0/1 correspond
+// to captured-side <div> elements with these markers; the tag-identity
+// check below treats those as equivalent rather than divergences.
+const EXPECTED_TAG_SWAPS = new Map([
+  ["HTML", "DIV"],
+  ["BODY", "DIV"],
+]);
+// Acceptable count of unexplained tag mismatches across the full paired
+// set before we declare the walks misaligned. >0 to tolerate edge cases
+// (e.g. one-off browser-extension-injected nodes); a real misalignment
+// produces dozens-to-thousands of mismatches (78% on Wikipedia Love
+// pre-fix), so anything above single-digits triggers the bail.
+const MAX_TAG_DIVERGENCES = 5;
+
 function diff(source, captured) {
   // Pair by UID — source-uid N ↔ captured-uid N.
   const byUidSrc = new Map(source.elements.map((e) => [e.uid, e]));
@@ -218,6 +246,50 @@ function diff(source, captured) {
   const pairedUids = [...byUidSrc.keys()].filter((u) => byUidCap.has(u));
   const droppedFromCapture = [...byUidSrc.keys()].filter((u) => !byUidCap.has(u));
   const addedInCapture = [...byUidCap.keys()].filter((u) => !byUidSrc.has(u));
+
+  // Walk-alignment invariant. Pairing-by-UID gives us 1-to-1 mapping by
+  // count, but if the source-side and captured-side walks diverge by
+  // even one element early on, every subsequent UID compares the wrong
+  // elements — silently producing garbage drift numbers. Check tag
+  // identity across the FULL paired set (not just the sample) and
+  // bail loud rather than report bogus numbers. Pre-fix on Wikipedia
+  // Love we saw 39/50 tagMatch=false in the sample, which is the smoke
+  // signal this exists to catch.
+  const tagDivergences = [];
+  for (const uid of pairedUids) {
+    const s = byUidSrc.get(uid);
+    const c = byUidCap.get(uid);
+    if (s.tag === c.tag) continue;
+    if (EXPECTED_TAG_SWAPS.get(s.tag) === c.tag) continue;
+    tagDivergences.push({
+      uid,
+      srcTag: s.tag,
+      capTag: c.tag,
+      srcCls: (s.classes || "").split(" ").slice(0, 2).join(" "),
+      capCls: (c.classes || "").split(" ").slice(0, 2).join(" "),
+    });
+  }
+  if (tagDivergences.length > MAX_TAG_DIVERGENCES) {
+    console.error(
+      `\n[ALIGNMENT BUG] ${tagDivergences.length} of ${pairedUids.length} paired ` +
+        `UIDs have mismatched tags — the source-side and captured-side walks have ` +
+        `diverged. Drift numbers are unreliable until this is fixed.\n\nFirst 6 ` +
+        `divergences:`,
+    );
+    for (const d of tagDivergences.slice(0, 6)) {
+      console.error(
+        `  uid=${String(d.uid).padStart(4)} src=<${d.srcTag} class="${d.srcCls}"> ` +
+          `cap=<${d.capTag} class="${d.capCls}">`,
+      );
+    }
+    console.error(
+      `\nLikely causes: (a) DROP_TAGS_SET drift between collectSource and the ` +
+        `serializer's DROP_ELEMENTS; (b) source-side missing scroll-settle so ` +
+        `lazy content isn't materialized; (c) same-origin iframe descent ` +
+        `differing between walks. See collectSource() docstring.\n`,
+    );
+    process.exit(2);
+  }
 
   // Sample for per-element analysis.
   const sample = pairedUids.slice(0, SAMPLE_SIZE);
@@ -424,6 +496,33 @@ async function run() {
   const srcPage = await context.newPage();
   await srcPage.goto(REFERENCE_URL, { waitUntil: "load", timeout: 45_000 });
   await srcPage.waitForTimeout(4000);
+  // Mirror the serializer's pre-walk scroll-and-settle (see
+  // content/index.tsx:scrollToBottomAndSettle). Lazy-mounted sections
+  // (collapsibles, IntersectionObserver, next/dynamic) only render in
+  // the source after scroll — without this the source-side walk lacks
+  // elements the capture-side walk has, pairing produces off-by-N UIDs,
+  // and tagMatch fails downstream.
+  console.log(`[source] scroll-and-settle (mirroring capture pipeline)…`);
+  await srcPage.evaluate(async () => {
+    const scroller = document.scrollingElement ?? document.documentElement;
+    if (!scroller) return;
+    const origScroll = scroller.scrollTop;
+    let lastHeight = scroller.scrollHeight;
+    let stableTicks = 0;
+    for (let i = 0; i < 30; i++) {
+      scroller.scrollTo(0, scroller.scrollHeight);
+      await new Promise((r) => setTimeout(r, 200));
+      const h = scroller.scrollHeight;
+      if (h === lastHeight) {
+        if (++stableTicks >= 2) break;
+      } else {
+        stableTicks = 0;
+        lastHeight = h;
+      }
+    }
+    scroller.scrollTo(0, origScroll);
+    await new Promise((r) => setTimeout(r, 100));
+  });
   const source = await srcPage.evaluate(collectSource);
   console.log(`[source] ${source.totalElements} elements, ${source.cssRuleCount} CSS rules, ${source.docHeight}px tall`);
 

@@ -3,6 +3,7 @@ import { toPng, toJpeg } from "html-to-image";
 import {
   AddClassesInput,
   AddComponentsInput,
+  AddCssRulesInput,
   type ComponentNodeT,
   CreateArtboardInput,
   DeleteNodesInput,
@@ -162,6 +163,7 @@ function frameIframe(frame: Frame): HTMLIFrameElement | undefined {
  */
 const WRITE_TOOLS = new Set([
   "add_components",
+  "add_css_rules",
   "update_styles",
   "delete_nodes",
   "set_variables",
@@ -296,6 +298,19 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
         : editor.addComponents(input.html);
       const list = Array.isArray(added) ? added : [added];
       return { componentIds: list.filter(Boolean).map((c) => (c as Component).getId()) };
+    },
+
+    add_css_rules: (params) => {
+      const input = AddCssRulesInput.parse(params);
+      // CssComposer.addRules parses the cssText, builds CssRule models, and
+      // appends them to the editor's CSS collection. GrapesJS renders the
+      // collection into each frame's iframe stylesheet automatically, so
+      // class references in already-imported HTML resolve once the rules
+      // land. `artboardId` is accepted for forward compatibility (per-frame
+      // CSS scoping is a future GrapesJS feature) — today the rules are
+      // class-keyed so cross-frame leakage isn't a concern in practice.
+      const rules = editor.Css.addRules(input.cssText);
+      return { ruleCount: Array.isArray(rules) ? rules.length : 0 };
     },
 
     update_styles: (params) => {

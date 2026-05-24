@@ -14,6 +14,8 @@ import {
   GetSelectionInput,
   GetSelectionOutput,
   AddComponentsInput,
+  AddCssRulesInput,
+  AddCssRulesOutput,
   AddComponentsOutput,
   UpdateStylesInput,
   UpdateStylesOutput,
@@ -160,6 +162,31 @@ describe("AddComponentsInput / AddComponentsOutput", () => {
   });
   it("rejects output missing componentIds", () => {
     expect(AddComponentsOutput.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("AddCssRulesInput / AddCssRulesOutput", () => {
+  it("parses with required cssText and optional artboardId", () => {
+    expect(
+      AddCssRulesInput.safeParse({ cssText: ".x { color: red }", artboardId: "a" }).success,
+    ).toBe(true);
+  });
+  it("parses without artboardId (global rules)", () => {
+    expect(AddCssRulesInput.safeParse({ cssText: ".x { color: red }" }).success).toBe(true);
+  });
+  it("rejects missing cssText", () => {
+    expect(AddCssRulesInput.safeParse({ artboardId: "a" }).success).toBe(false);
+  });
+  it("rejects unknown fields (.strict())", () => {
+    expect(
+      AddCssRulesInput.safeParse({ cssText: ".x { color: red }", html: "<p/>" }).success,
+    ).toBe(false);
+  });
+  it("parses output with ruleCount", () => {
+    expect(AddCssRulesOutput.safeParse({ ruleCount: 3 }).success).toBe(true);
+  });
+  it("rejects negative ruleCount", () => {
+    expect(AddCssRulesOutput.safeParse({ ruleCount: -1 }).success).toBe(false);
   });
 });
 

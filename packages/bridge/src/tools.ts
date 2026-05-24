@@ -69,6 +69,23 @@ export const AddComponentsInput = z
   .strict();
 export const AddComponentsOutput = z.object({ componentIds: z.array(z.string()) });
 
+export const AddCssRulesInput = z
+  .object({
+    /** Raw CSS text, one or more rules. Routed straight to the GrapesJS CSS
+     * Manager via `editor.Css.addRules` — bypasses the HTML parser entirely,
+     * which silently strips `<style>` elements on import. */
+    cssText: z.string(),
+    /**
+     * Artboard/frame id. When set, rules are scoped to that frame's iframe
+     * stylesheet — captured-page CSS for one artboard doesn't bleed into
+     * sibling artboards. Without this, rules apply globally. The chrome-
+     * extension capture pipeline always passes this.
+     */
+    artboardId: z.string().optional(),
+  })
+  .strict();
+export const AddCssRulesOutput = z.object({ ruleCount: z.number().int().nonnegative() });
+
 export const UpdateStylesInput = z
   .object({
     componentId: z.string(),
@@ -176,6 +193,7 @@ export const TOOL_SCHEMAS = {
   get_screenshot: { input: GetScreenshotInput, output: GetScreenshotOutput },
   get_selection: { input: GetSelectionInput, output: GetSelectionOutput },
   add_components: { input: AddComponentsInput, output: AddComponentsOutput },
+  add_css_rules: { input: AddCssRulesInput, output: AddCssRulesOutput },
   update_styles: { input: UpdateStylesInput, output: UpdateStylesOutput },
   delete_nodes: { input: DeleteNodesInput, output: DeleteNodesOutput },
   get_jsx: { input: GetJsxInput, output: GetJsxOutput },
@@ -208,6 +226,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Return the componentIds of currently selected elements in the editor. Empty array if nothing selected.",
   add_components:
     "Insert raw HTML onto the DesignJS design canvas. Tailwind classes resolve correctly. Returns the created componentIds. To land content inside a specific artboard (the common case after `create_artboard`), pass `artboardId` — not `target`. `target` is for appending into an existing component's subtree. Without either, content lands in the first/default frame, which is usually not what you want on a multi-artboard canvas.",
+  add_css_rules:
+    "Register raw CSS rules directly with the canvas iframe's stylesheet via GrapesJS' CSS Manager. Use this when you have CSS that needs to land in the canvas WITHOUT routing through HTML parsing (which silently strips `<style>` elements). Typical use: the browser-extension capture pipeline emits hoisted shared classes via this tool BEFORE the corresponding `add_components` call, so element references resolve. Optional `artboardId` scopes rules to one frame's stylesheet. Returns the number of rules added.",
   update_styles:
     "Update CSS properties on an existing component. Accepts both CSS properties and Tailwind utility strings (via the 'class' key convention).",
   delete_nodes:

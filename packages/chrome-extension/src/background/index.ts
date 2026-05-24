@@ -100,6 +100,10 @@ function postRenderingPhase(
 async function relayCapture(
   msg: {
     html: string;
+    /** Captured CSS (author + dedup + computed) extracted out of the import
+     * HTML by the content script. Sent via add_css_rules before
+     * add_components so element class references resolve. */
+    cssText?: string;
     newArtboard?: { name?: string; width: number; height: number };
     /** Optional full-page screenshot data URL — ADR-0012 §1 hybrid backplate. */
     screenshotDataUrl?: string;
@@ -115,7 +119,25 @@ async function relayCapture(
       params: msg.newArtboard,
     })) as { artboard: { id: string } };
 
-    // Backplate goes in first so it sits *behind* the HTML tree in
+    // CSS rules first — they need to be registered before add_components
+    // so the captured elements' class references resolve. Routes the
+    // author / dedup / computed style blocks through GrapesJS' CSS Manager,
+    // bypassing parseHtml's silent <style>-stripping. Best-effort: if the
+    // CSS step fails the structural capture still lands (matches the
+    // backplate's resilience).
+    if (msg.cssText && msg.cssText.length > 0) {
+      try {
+        await bridge.send({
+          tool: "add_css_rules",
+          params: { cssText: msg.cssText, artboardId: artboard.id },
+          timeoutMs: 60_000,
+        });
+      } catch (err) {
+        console.warn("[designjs] add_css_rules failed; structural capture will continue with reduced fidelity:", err);
+      }
+    }
+
+    // Backplate goes in next so it sits *behind* the HTML tree in
     // document order. The actual stacking is handled by z-index:-1 on
     // the wrapper; document order matters because the artboard's
     // wrapper isn't itself a stacking context.

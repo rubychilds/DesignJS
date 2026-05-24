@@ -263,23 +263,19 @@ async function capturePage(): Promise<void> {
   // pixel values we capture from getComputedStyle for auto-sized
   // properties (width/height drift at 50/50 in the current baseline).
   // Dedup tuning escape hatch for sweep runs. Set
-  //   window.__designjsDedup = { enabled: true }    // opt back in
+  //   window.__designjsDedup = { enabled: false }   // disable entirely
   //   window.__designjsDedup = { threshold: 3, minSavings: 200, classCap: 200 }
   // in DevTools before triggering capture. No rebuild needed.
   //
-  // Default OFF as of 2026-05-24: GrapesJS' parseHtml strips the
-  // <style data-designjs-dedup> block on import (verified in canvas
-  // DevTools: 0 _djh* rules in 1949 iframe stylesheets), so dedup-hoisted
-  // elements lose their styles entirely — the 7 <a> flex → inline
-  // mismatches on Wikipedia traced back here. Until the planned
-  // add_css_rules bridge tool ships (lands dedup CSS directly via
-  // editor.Css.addRules, bypassing the HTML parser), keeping all styles
-  // inline is the higher-fidelity choice. Cost: ~1MB payload growth on
-  // Wikipedia-class pages, still well under the 8MB cap.
+  // Default ON again as of the add_css_rules bridge tool: dedup-hoisted
+  // class rules now land via editor.Css.addRules on the canvas side
+  // (bypassing GrapesJS' parseHtml which silently strips <style> blocks),
+  // so the dedup-class fidelity bug that motivated turning this OFF in
+  // commit 6cca88b is resolved.
   const dedupOverride =
     (window as unknown as { __designjsDedup?: Record<string, unknown> })
       .__designjsDedup ?? {};
-  const dedupEnabled = (dedupOverride.enabled as boolean | undefined) ?? false;
+  const dedupEnabled = (dedupOverride.enabled as boolean | undefined) ?? true;
   const result = serialize(root, {
     hardLimit: PAGE_CAPTURE_HARD_LIMIT,
     mode: "inline",
@@ -312,13 +308,32 @@ async function capturePage(): Promise<void> {
   // tree. Swap the outer <html> AND the inner <body> for <div> so the
   // inlined styles still apply but the nesting is legal. Markers retain
   // the original tag identity for inspector / future tooling.
-  // Style blocks (author / dedup / captured-computed) now precede the
-  // captured <html> wrapper in result.html — emitted as siblings, not
-  // children, so GrapesJS' parseCss picks them up via its CSS Manager
-  // rather than stripping them when the wrapper component doesn't allow
-  // <style> children. The regex therefore needs to match <html anywhere
-  // rather than at start-of-string.
-  const swapped = result.html
+  // Extract the author / dedup / captured-computed <style> blocks the
+  // serializer emits as siblings of the captured wrapper. Route these
+  // to the canvas via the add_css_rules bridge tool instead of leaving
+  // them in the import HTML — GrapesJS' parseHtml silently strips
+  // <style> elements during import (verified in canvas DevTools: 0 of
+  // 1,949 stylesheets contained any author or dedup rule when blocks
+  // were left in the HTML), so the editor.Css.addRules path via the
+  // new bridge tool is the only way these rules actually land.
+  const cssBlocks: string[] = [];
+  const STYLE_MARKERS = ["author", "dedup", "capture"] as const;
+  let htmlNoStyles = result.html;
+  for (const marker of STYLE_MARKERS) {
+    const re = new RegExp(
+      `<style data-designjs-${marker}="">([\\s\\S]*?)<\\/style>`,
+      "g",
+    );
+    htmlNoStyles = htmlNoStyles.replace(re, (_m, css: string) => {
+      if (css && css.length > 0) cssBlocks.push(css);
+      return "";
+    });
+  }
+  const extractedCss = cssBlocks.join("\n");
+
+  // Style blocks have been stripped; the captured <html> wrapper now
+  // leads. Swap html / body to <div> so GrapesJS accepts the structure.
+  const swapped = htmlNoStyles
     .replace(/<html\b/, '<div data-dj-source-html=""')
     .replace(/<\/html>$/, "</div>")
     .replace(/<body\b/g, '<div data-dj-source-body=""')
@@ -377,6 +392,7 @@ async function capturePage(): Promise<void> {
     {
       type: "capture:send",
       html,
+      cssText: extractedCss,
       newArtboard: { name, width, height },
       nodeCount: result.nodeCount,
       byteCount: result.byteCount,

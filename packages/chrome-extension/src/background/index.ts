@@ -173,10 +173,14 @@ async function relayCapture(
     const addResult = await bridge.send({
       tool: "add_components",
       params: { html: msg.html, artboardId: artboard.id },
-      // 90s — GrapesJS parse + paint on Wikipedia-class articles (~2-4MB
-      // payload, ~2k nodes) regularly runs 20-60s. Default 15s falsely
-      // fails captures that the canvas would still complete.
-      timeoutMs: 90_000,
+      // 180s — even after dedup + add_css_rules chunking, GrapesJS' parse +
+      // model tree build on Wikipedia-class articles (~7k components +
+      // ~2.4k CSS rules) was tripping the prior 90s cap. Bumped to 180s
+      // to absorb worst-case Wikipedia/MDN parse times; canvas tab stays
+      // unresponsive during this window so a longer wait is acceptable
+      // over a false-fail that wastes the whole capture. Until Q2 (chunked
+      // add_components) lands, this is the lever.
+      timeoutMs: 180_000,
     });
     // fit_artboard measures the iframe content and resizes the frame
     // accordingly. Best-effort — if it fails (iframe slow to mount,

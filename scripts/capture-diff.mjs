@@ -45,6 +45,28 @@ const CANVAS_URL = "http://localhost:3000/";
 const REFERENCE_URL =
   process.argv[2] ?? "https://docs.python.org/3/tutorial/introduction.html";
 
+// Sub-pixel rounding tolerance for px-valued properties. Without this, the
+// Wikipedia Love baseline counted 27 of 48 width mismatches as the literal
+// pair (186.406px, 186.391px) — 0.015px sub-pixel rounding from layout-
+// engine quirks (subpixel positioning, fractional widths from auto-layout
+// distribution). 1px is generous enough to cover those without masking
+// real layout drift.
+const EPSILON_PX = 1.0;
+
+function parsePx(v) {
+  if (typeof v !== "string") return null;
+  const m = v.match(/^(-?\d+(?:\.\d+)?)px$/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function valuesEqual(a, b) {
+  if (a === b) return true;
+  const ap = parsePx(a);
+  const bp = parsePx(b);
+  if (ap !== null && bp !== null) return Math.abs(ap - bp) <= EPSILON_PX;
+  return false;
+}
+
 // 30-property fingerprint for computed-style alignment.
 // Covers layout, dimensions, spacing, color, type, flex/grid, overflow.
 const FINGERPRINT_PROPS = [
@@ -208,12 +230,18 @@ function diff(source, captured) {
     const srcAttrs = new Set(s.attrs.filter((a) => a !== "data-source-uid"));
     const capAttrs = new Set(c.attrs);
     const lostAttrs = [...srcAttrs].filter((a) => !capAttrs.has(a));
-    // Per-property mismatches
+    // Per-property mismatches (ε-tolerant for px values; see EPSILON_PX).
+    // Track near-misses separately so we can report how much sub-pixel
+    // rounding the filter caught.
     const mismatches = [];
+    let nearMissCount = 0;
     for (const p of FINGERPRINT_PROPS) {
-      if (s.fp[p] !== c.fp[p]) {
-        mismatches.push({ prop: p, src: s.fp[p], cap: c.fp[p] });
+      if (s.fp[p] === c.fp[p]) continue;
+      if (valuesEqual(s.fp[p], c.fp[p])) {
+        nearMissCount++;
+        continue;
       }
+      mismatches.push({ prop: p, src: s.fp[p], cap: c.fp[p] });
     }
     // Bbox parity
     const bboxDelta = {
@@ -227,6 +255,7 @@ function diff(source, captured) {
       classes: { src: s.classes, cap: c.classes },
       lostAttrs,
       mismatchCount: mismatches.length,
+      nearMissCount,
       mismatches: mismatches.slice(0, 8), // cap per-element for report size
       bboxDelta,
     };
@@ -248,6 +277,7 @@ function diff(source, captured) {
 
   // Aggregates
   const totalMismatches = perElement.reduce((s, e) => s + e.mismatchCount, 0);
+  const totalNearMisses = perElement.reduce((s, e) => s + (e.nearMissCount || 0), 0);
   const propMismatchTotals = {};
   for (const e of perElement) {
     for (const m of e.mismatches) {
@@ -276,6 +306,8 @@ function diff(source, captured) {
     sampleSize: sample.length,
     perElement,
     totalSampledMismatches: totalMismatches,
+    totalSampledNearMisses: totalNearMisses,
+    epsilonPx: EPSILON_PX,
     topMismatchProps,
   };
 }
@@ -430,7 +462,10 @@ async function run() {
   console.log(
     `\n[diff] paired ${audit.totals.pairedCount}/${source.totalElements} by UID — sampled ${audit.sampleSize} for property fingerprint`,
   );
-  console.log(`[diff] total sampled property mismatches: ${audit.totalSampledMismatches}`);
+  console.log(
+    `[diff] total sampled property mismatches: ${audit.totalSampledMismatches}` +
+      ` (${audit.totalSampledNearMisses} near-miss px deltas within ε=${audit.epsilonPx}px filtered out)`,
+  );
   if (audit.topMismatchProps.length) {
     console.log(`[diff] top mismatching properties:`);
     for (const [p, n] of audit.topMismatchProps.slice(0, 5)) {

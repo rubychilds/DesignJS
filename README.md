@@ -4,7 +4,7 @@
 
 DesignJS is a local-first, HTML/CSS-native visual canvas that AI coding agents (Claude Code, Cursor, Codex) read and write through the [Model Context Protocol](https://modelcontextprotocol.io). Design and code converge into a single artifact — no translation gap between visual intent and production output.
 
-> **Status:** early v0.1 in active development. Foundations — canvas, MCP server, WebSocket bridge — are working end-to-end. Polish and feature stories from the [roadmap](#roadmap) are in flight.
+> **Status:** v0.1 foundations + v0.3 Chrome-extension capture working end-to-end. The agent ↔ canvas loop is stable, and a separate side channel lets you **drop any live web page or DOM subtree onto the canvas as editable HTML** via the extension. v0.2 polish (paste-import, transform handles, component instances) is in flight per the [roadmap](#roadmap).
 
 ## Why
 
@@ -98,6 +98,70 @@ If you'd rather write the MCP config yourself, add this to your project's `.mcp.
 }
 ```
 
+## Capture web pages with the Chrome extension
+
+The DesignJS Chrome extension lets you grab any element or full web page and drop it onto the canvas as editable HTML. The capture pipeline walks the DOM, serializes computed styles + author CSS, and routes everything into a fresh artboard on your running canvas — no copy-paste, no screenshot tracing.
+
+### Install
+
+The extension isn't on the Chrome Web Store yet (planned for v0.3 public). For now, load it locally from this repo:
+
+```bash
+pnpm install                                       # if you haven't already
+pnpm --filter @designjs/chrome-extension build     # builds packages/chrome-extension/dist/
+```
+
+Then in Chrome:
+
+1. Open `chrome://extensions`
+2. Toggle **Developer mode** on (top-right)
+3. Click **Load unpacked** and select `packages/chrome-extension/dist/`
+4. Pin the DesignJS icon to the toolbar (puzzle-piece menu → pin)
+
+When you next change extension source, rebuild and click the circular **reload** arrow on the DesignJS card in `chrome://extensions`.
+
+### Use
+
+With `pnpm dev` running (canvas reachable at `localhost:3000`):
+
+1. Navigate to any web page in Chrome.
+2. Click the **DesignJS** icon in the toolbar. An overlay drops into the page; the green dot top-left confirms it can reach the canvas.
+3. Two capture modes:
+   - **Start capture** — hover any element to highlight it. Use `↑ ↓ ← →` to traverse up/down the DOM tree, `Enter` to commit, `Esc` to cancel. The selection plus its descendants and computed styles land in the canvas as a new component.
+   - **Capture page** — grabs the full `<html>` tree, scrolls + settles lazy-mounted sections, takes a full-page screenshot for an opacity-0.15 backplate, creates a fresh artboard sized to the source page, and ships everything to the canvas. Progress phases (Capturing → Sending → Rendering) display in the overlay during long captures.
+
+Captured content lands as **real, editable HTML/CSS** — every element shows up in the layer tree, every property is inspectable + editable, classes survive intact for Tailwind round-trips, and the result saves to your `.designjs.json` like any other canvas state.
+
+### What's captured today (v0.3)
+
+- ✅ Element selection + whole-page capture
+- ✅ Computed-style serialization (~150 CSS properties: layout, typography, color, flex/grid, multi-column, tables, lists, transforms, filters)
+- ✅ Same-origin `<iframe>` content (inlined as `srcdoc`)
+- ✅ Cross-origin image / media URL rewriting (absolute paths so canvas iframe loads them)
+- ✅ Source page's author CSS (via `editor.Css.addRules` so dedup + author rules land in the canvas's CSS Manager rather than being stripped by GrapesJS' HTML parser — see [ADR-0011 2026-05-24 addendum](./docs/adr/0011-browser-extension-architecture.md))
+- ✅ Allowlisted font-CDN `<link>` tags hoisted into the capture (Google Fonts / Bunny / TypeKit / fonts loaded via `<link>`)
+- ✅ Style dedup hoist — repeated computed-style blocks share auto-generated `_djhN` classes to keep payload bounded
+- ✅ Progress UX — granular phase events shown in-overlay during capture
+
+### Known limitations (planned for v0.4)
+
+- ❌ Shadow DOM — silently skipped today; needs CDP `DOM.getDocument` traversal
+- ❌ Cross-origin iframes — pass through as `<iframe>` with absolute `src`, content not inlined
+- ❌ Hotlink-protected images — render as broken-image placeholders
+- ❌ Authed-only content — captured from the live session but the canvas can't re-auth
+- ❌ Non-CDN-served fonts — `font-family` value preserved, but the font file doesn't follow (Phase 1 of font preservation is in [docs/font-preservation-plan.md](./docs/font-preservation-plan.md))
+- ⚠️ Wikipedia-class long pages (~7k components) take 60-180s to land — `add_components` is the bottleneck; chunked dispatch is tracked as Q1 in [epic-8-followups.md §9](./docs/epic-8-followups.md)
+
+### Diagnose a stuck or off-looking capture
+
+The overlay shows a progress phase + an inline error if anything fails. For more detail:
+
+- Inspect the **Wikipedia tab's** DevTools console — the content script logs `[designjs] page captured: N nodes, MKB, serialized in Tms` plus a `[designjs] extracted N <style> block(s)` line confirming the CSS extraction step.
+- Inspect the **extension's service worker** (`chrome://extensions` → DesignJS card → blue "service worker" link) — the background logs `[designjs] dispatching add_css_rules: NKB` then the canvas response.
+- Inspect the **canvas tab** (`localhost:3000`) — the bridge logs `[designjs:bridge] add_css_rules: NKB → N chunks → M rules parsed` confirming rules landed in the CSS Manager.
+
+If `[designjs:bridge] add_css_rules` doesn't appear after a capture, the canvas isn't running an `add_css_rules`-aware build — restart `pnpm dev` from scratch (not just HMR).
+
 ## Known quirks in v0.1
 
 ### One `.designjs.json` per canvas session, not per project
@@ -128,10 +192,11 @@ Pre-rebrand users may have an `opencanvas` MCP server sitting in `~/.claude.json
 | [`packages/bridge`](./packages/bridge) | `@designjs/bridge` | Shared Zod schemas for the WS wire protocol and MCP tool I/O. Consumed by both halves. |
 | [`packages/cli`](./packages/cli) | `@designjs/cli` | `designjs init` — detects the installed IDE(s) and writes the right MCP config. |
 | [`packages/create-designjs`](./packages/create-designjs) | `create-designjs` | `npm create designjs@latest <dir>` scaffolder. Drops `.mcp.json` + `CLAUDE.md` into a fresh project. |
+| [`packages/chrome-extension`](./packages/chrome-extension) | *(not published — load unpacked)* | Chrome MV3 extension that captures any web page or DOM subtree and drops it onto the running canvas. Loadable via `chrome://extensions → Load unpacked → packages/chrome-extension/dist/`. |
 
 ## MCP tools
 
-Twenty bidirectional tools, grouped by area. Full input/output schemas in [`packages/bridge/src/tools.ts`](./packages/bridge/src/tools.ts).
+Twenty-one bidirectional tools, grouped by area. Full input/output schemas in [`packages/bridge/src/tools.ts`](./packages/bridge/src/tools.ts).
 
 **Inspect**
 | Tool | Purpose |
@@ -149,6 +214,7 @@ Twenty bidirectional tools, grouped by area. Full input/output schemas in [`pack
 | Tool | Purpose |
 |------|---------|
 | `add_components` | Insert raw HTML (Tailwind supported). `artboardId` lands content in a specific frame. |
+| `add_css_rules` | Register raw CSS rules directly with the canvas's CSS Manager. Bypasses `add_components`' HTML parsing (which strips `<style>` elements) so author + dedup CSS from the Chrome extension actually lands. Chunked at rule boundaries for large payloads. |
 | `update_styles` | Set CSS properties on a component by id. |
 | `add_classes` / `remove_classes` | Tailwind class helpers without re-emitting full HTML. |
 | `set_text` | Replace the text content of a text-bearing component. |
@@ -217,9 +283,9 @@ Twenty bidirectional tools, grouped by area. Full input/output schemas in [`pack
 - [x] Applicability gating — controls grey out (radius on inline text) or hide entirely (auto-layout on text) when not meaningful for the selection
 - [x] Lucide-only iconography, drag-to-scrub number inputs, color field with hex + alpha
 
-**MCP tools** *(20 tools, full list above — all verified via Playwright specs)*
+**MCP tools** *(21 tools, full list above — all verified via Playwright specs + unit tests)*
 - [x] Inspect: `ping`, `get_tree`, `get_html`, `get_css`, `get_jsx`, `get_screenshot`, `get_selection`, `get_variables`
-- [x] Mutate: `add_components`, `update_styles`, `add_classes`, `remove_classes`, `set_text`, `set_variables`, `delete_nodes`, `select`, `deselect`
+- [x] Mutate: `add_components`, `add_css_rules`, `update_styles`, `add_classes`, `remove_classes`, `set_text`, `set_variables`, `delete_nodes`, `select`, `deselect`
 - [x] Artboards: `create_artboard`, `list_artboards`, `find_placement`, `fit_artboard`
 
 **Remaining for v0.1**
@@ -240,9 +306,32 @@ Twenty bidirectional tools, grouped by area. Full input/output schemas in [`pack
 
 ### v0.3 — extension, multi-agent, IDE *(weeks 9–12)*
 
-Chrome extension for site capture (DOM walk + computed-style serialization), concurrent MCP sessions with workspace isolation (foundation already in the bridge), VS Code custom editor for `.designjs.json`, shadcn/ui block library.
+**Chrome extension for site capture** *(substantially shipped — load-unpacked today; Web Store submission pending)*
 
-Detailed stories and acceptance criteria live in the PRD (not checked in).
+- [x] Content-script overlay (not a browser-action popup — see [ADR-0011](./docs/adr/0011-browser-extension-architecture.md))
+- [x] Keyboard-driven DOM walker — hover highlights, `↑↓←→` traverses, Enter commits, Esc exits
+- [x] Computed-style serializer (hybrid inline / inherited-diff, ~150 CSS properties: layout, type, color, flex/grid, multi-column, tables, lists, transforms, filters)
+- [x] Whole-page capture — auto-scroll-and-settle for lazy-mounted sections, `<html>` capture with `<body>` → `<div>` swap, fresh artboard sized to source
+- [x] Hybrid screenshot backplate ([ADR-0012 §1](./docs/adr/0012-capture-fidelity-evolution.md)) — full-page stitched screenshot composited under the HTML tree at opacity 0.15
+- [x] Same-origin iframe inlining (via `srcdoc`)
+- [x] Author-CSS supplement — extracts source page's `@font-face`, `@keyframes`, `::before` / `::after` rules
+- [x] Style-dedup hoist — repeated computed-style blocks share `_djhN` classes; capped at 100 to keep GrapesJS' CSS Manager surface bounded
+- [x] `add_css_rules` bridge tool routes captured CSS (~2,400 rules on Wikipedia-class pages) directly into the canvas's CSS Manager, bypassing `parseHtml` stripping
+- [x] Granular capture progress (Serializing → Screenshotting → Sending → Rendering) with per-phase events
+- [x] Font-CDN allowlist hoist — preserves Google Fonts / Bunny / TypeKit `<link>` tags
+- [x] Capture-fidelity diff tool — `scripts/capture-diff.mjs` scores source vs captured per-element drift with ε-tolerance and walk-alignment invariants
+- [ ] Chrome Web Store submission (gating public v0.3 availability)
+- [ ] Shadow DOM / cross-origin iframes / authed content — deferred to v0.4 CDP per [ADR-0012 §2](./docs/adr/0012-capture-fidelity-evolution.md)
+- [ ] Non-CDN font preservation (Phase 1 Google Fonts name fallback + Phase 2 binary inlining — see [docs/font-preservation-plan.md](./docs/font-preservation-plan.md))
+- [ ] Chunked `add_components` — eliminates 180s timeout race on Wikipedia-class captures (Q1 in [epic-8-followups.md §9](./docs/epic-8-followups.md))
+
+**Other v0.3 items**
+
+- [ ] Concurrent MCP sessions with workspace isolation (foundation already in the bridge)
+- [ ] VS Code custom editor for `.designjs.json`
+- [ ] shadcn/ui block library
+
+Detailed stories and acceptance criteria live in [`docs/epic-8-followups.md`](./docs/epic-8-followups.md) and the relevant ADRs.
 
 ## Development
 

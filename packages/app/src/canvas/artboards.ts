@@ -117,30 +117,37 @@ export function listArtboards(editor: Editor): FrameData[] {
 
 /**
  * Given a desired width/height, suggest a canvas-world position that doesn't
- * overlap any existing artboard. Places new artboards to the right of the
- * existing set, separated by DEFAULT_ARTBOARD_GAP.
+ * overlap any existing artboard. Places new artboards on a horizontal "top
+ * row" strip (`y: 0`) extending rightward from the rightmost-edge of any
+ * existing artboard, separated by DEFAULT_ARTBOARD_GAP.
+ *
+ * Pinning every placement to `y: 0` is deliberate: prior versions tracked
+ * the y of whichever existing artboard happened to be rightmost, which
+ * caused vertical drift across multiple captures of varying heights. The
+ * "captures pile on top of each other" user report traced to that drift —
+ * with one tall existing artboard, the next capture would land far below
+ * the visible canvas area. Top-row placement is predictable and easy to
+ * find via Cmd+0 fit-to-content.
  */
 export function findPlacement(
   editor: Editor,
-  width: number,
-  height: number,
+  // width / height kept in the signature for API stability (callers in
+  // handlers.ts + createArtboard pass them) but no longer consulted —
+  // top-row placement doesn't depend on the new artboard's dimensions.
+  _width: number,
+  _height: number,
 ): { x: number; y: number } {
   const existing = listArtboards(editor);
   if (existing.length === 0) return { x: 0, y: 0 };
 
-  // rightmost edge across all artboards
   let rightmost = -Infinity;
-  let topOfRightmost = 0;
   for (const f of existing) {
     const right = f.x + f.width;
-    if (right > rightmost) {
-      rightmost = right;
-      topOfRightmost = f.y;
-    }
+    if (right > rightmost) rightmost = right;
   }
   return {
     x: rightmost + DEFAULT_ARTBOARD_GAP,
-    y: topOfRightmost,
+    y: 0,
   };
 }
 
@@ -351,6 +358,12 @@ export function findSnapOffset(
  * Move an artboard to an absolute canvas-world position. Applies snap-to-edge
  * alignment with sibling frames when `snap` is true (default). Emits
  * ARTBOARDS_CHANGED on success.
+ *
+ * The `noUndo` option suppresses the per-step undo entry that GrapesJS would
+ * otherwise record. Drag handlers pass `noUndo: true` on every pointermove
+ * and emit a single trackable commit on pointerup — without this, a 100px
+ * drag produces ~30 undo entries instead of one. Honored by GrapesJS' undo
+ * lib (grapesjs@0.22.16 source, `noUndo:!0`).
  */
 export function moveArtboard(
   editor: Editor,
@@ -358,19 +371,20 @@ export function moveArtboard(
   x: number,
   y: number,
   snap: boolean = true,
+  opts: { noUndo?: boolean } = {},
 ): { x: number; y: number; snappedX: boolean; snappedY: boolean } | false {
   const frames = editor.Canvas.getFrames();
   const frame = (frames as unknown as Array<{
     cid?: string;
     id?: string;
-    set?: (a: Record<string, unknown>) => void;
+    set?: (a: Record<string, unknown>, opts?: Record<string, unknown>) => void;
   }>).find((f) => String(f.cid ?? f.id ?? "") === id);
   if (!frame || typeof frame.set !== "function") return false;
 
   const final = snap
     ? findSnapOffset(editor, id, x, y)
     : { x, y, snappedX: false, snappedY: false };
-  frame.set({ x: final.x, y: final.y });
+  frame.set({ x: final.x, y: final.y }, opts.noUndo ? { noUndo: true } : undefined);
   notifyChange(editor);
   return final;
 }
@@ -593,6 +607,50 @@ const DEFAULT_FIRST_FRAME = {
  * height stays at 0), so we route through the verified `addFrame` path
  * that `createArtboard` uses for every other frame-creation call site.
  */
+/**
+ * Boolean attribute set on the wrapper Component of the frame that is
+ * the "Page root" — the implicit canvas container that loose-canvas
+ * primitives attach to (ADR-0006 §4). Stored as a Component attribute
+ * so it round-trips through `loadProjectData` / `getProjectData`.
+ *
+ * Only one frame should carry this at a time; `ensurePageRoot` is the
+ * single writer. Readers (`getPageRootWrapper` in primitives.ts) prefer
+ * the marked frame, falling back to first-frame-in-document-order for
+ * legacy projects without the marker.
+ */
+export const PAGE_ROOT_ATTR = "data-designjs-page-root";
+
+/**
+ * Idempotent — closes ADR-0006 Open Question §1 (was: "first frame in
+ * document order" was load-bearing but fragile to drag-reorder /
+ * deletion / non-deterministic load order).
+ *
+ * If any frame's wrapper already carries the {@link PAGE_ROOT_ATTR},
+ * does nothing. Otherwise stamps the attribute on the first frame so
+ * the page-root identity survives reorders, deletions of subsequent
+ * frames, and round-trips through saved projects.
+ */
+export function ensurePageRoot(editor: Editor): void {
+  const frames = editor.Canvas.getFrames?.() ?? [];
+  if (frames.length === 0) return;
+  for (const f of frames) {
+    const wrapper = (f as unknown as { get?: (k: string) => unknown }).get?.(
+      "component",
+    ) as
+      | { getAttributes?: () => Record<string, unknown> }
+      | undefined;
+    const attrs = wrapper?.getAttributes?.() ?? {};
+    if (attrs[PAGE_ROOT_ATTR] != null) return;
+  }
+  const first = frames[0]!;
+  const wrapper = (first as unknown as { get?: (k: string) => unknown }).get?.(
+    "component",
+  ) as
+    | { addAttributes?: (a: Record<string, string>) => void }
+    | undefined;
+  wrapper?.addAttributes?.({ [PAGE_ROOT_ATTR]: "" });
+}
+
 export function ensureDefaultArtboard(editor: Editor): void {
   const frames = editor.Canvas.getFrames();
   if (frames.length === 0) {
@@ -632,4 +690,58 @@ export function clearAllFrames(editor: Editor): void {
   const snapshot = [...frames];
   for (const frame of snapshot) collection.remove(frame);
   notifyChange(editor);
+}
+
+/**
+ * Heal any frames whose persisted state is missing `width` / `height` /
+ * `x` / `y`.
+ *
+ * Background: a previous bug (since fixed) saved captured artboards to
+ * `.designjs.json` without their dimensions. On reload, GrapesJS's Frame
+ * constructor sees a falsy `width`/`height` and flips on the internal
+ * `__aw` / `__ah` "auto-size" flags (grapesjs@0.22.16 source, search
+ * `__aw`). In auto-size mode, the iframe sizes to `view.el.offsetWidth`
+ * — i.e. it stretches to fill whatever canvas viewport is available.
+ * Side effect: dragging *any other* artboard causes a layout shift in
+ * `.gjs-frames`, the captured iframe re-stretches to the new available
+ * width, and the user perceives a "narrowing" of the artboard.
+ *
+ * This heal step measures the iframe's current `offsetWidth` /
+ * `scrollHeight` and writes them back to the frame model + the wrapper
+ * component CSS (via {@link applyFrameDimensions}). Idempotent — frames
+ * with valid dims are left alone. Must run *after* `loadProjectData`
+ * AND after iframes have mounted (give it a setTimeout in the caller).
+ */
+export function healFrameDimensions(editor: Editor): number {
+  const frames = editor.Canvas.getFrames();
+  let healed = 0;
+  for (const f of frames) {
+    const m = f as unknown as {
+      get?: (k: string) => unknown;
+      set?: (a: Record<string, unknown>) => void;
+      view?: { frame?: { el?: HTMLIFrameElement }; el?: HTMLIFrameElement };
+    };
+    const currentW = m.get?.("width");
+    const currentH = m.get?.("height");
+    const needsW = !currentW || currentW === "" || Number(currentW) === 0;
+    const needsH = !currentH || currentH === "" || Number(currentH) === 0;
+    if (!needsW && !needsH) continue;
+    const iframeEl = m.view?.frame?.el ?? m.view?.el;
+    const doc = iframeEl?.contentDocument;
+    if (!iframeEl) continue;
+    const measuredW = needsW ? iframeEl.offsetWidth || 1440 : Number(currentW);
+    // For height, prefer body.scrollHeight (captured content's full extent)
+    // over offsetHeight (which is clipped to viewport when __ah is on).
+    const measuredH = needsH
+      ? doc?.body?.scrollHeight || iframeEl.offsetHeight || 900
+      : Number(currentH);
+    const next: Record<string, unknown> = {};
+    if (needsW) next.width = measuredW;
+    if (needsH) next.height = measuredH;
+    m.set?.(next);
+    applyFrameDimensions(f as Frame);
+    healed += 1;
+  }
+  if (healed > 0) notifyChange(editor);
+  return healed;
 }

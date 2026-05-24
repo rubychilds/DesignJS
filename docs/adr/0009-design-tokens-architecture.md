@@ -1,6 +1,6 @@
 # ADR-0009: Design tokens — data model, modes, CSS emission, agent surface
 
-**Status:** Proposed
+**Status:** Phase 1 Accepted (2026-05-04); Phases 2 + 3 Proposed
 **Date:** April 22, 2026
 **Owner:** Architecture
 **Related:** [ADR-0001](./0001-frontend-ui-stack.md) (Tailwind v4 CDN in iframe), [ADR-0003](./0003-panel-information-architecture.md) (Assets panel deferred — the home for grouped tokens UI), [ADR-0007](./0007-user-extensibility.md) (kits + Tailwind `@theme`-file theming), [ADR-0008](./0008-figma-import-strategy.md) (Figma relay — Variables flow via `get_variable_defs`); PRD Story 6.2 (Design tokens / CSS variables — partially shipped, category-grouping + mode-aware AC still open)
@@ -107,6 +107,8 @@ Verified from MCP schema: `get_variables(filePath) → { variables, themes }`; `
 
 Takeaway for us: Pencil ships the mode model we want, in a shape that's friendly to agents. Their `get_variables` returning *both* `variables` and `themes` in one call is worth mirroring.
 
+**Hierarchy** (verified 2026-04-24): `.pen format` page documents variables stored at the document level under a `variables` object, keyed by **dot-notation strings** (`"color.background"`, `"text.title"`). No "Collection" primitive in storage; grouping is conveyed through the dot-notation. Themes are an **orthogonal axis**, not a hierarchy level. Effectively a 2-level flat model with logical grouping via dotted keys — confirms our hybrid storage choice (§1).
+
 ### Paper.design — verified 2026-04-22
 
 Direct fetch of [paper.design/docs/mcp](https://paper.design/docs/mcp) succeeded (curl; WebFetch tool still denied but curl works through Bash). The `/docs` and `/manifesto` pages are client-rendered SPAs and exposed no token-model detail in raw HTML, but the MCP tools page rendered fully. Findings:
@@ -120,6 +122,10 @@ Direct fetch of [paper.design/docs/mcp](https://paper.design/docs/mcp) succeeded
 **Implication for this ADR:** Paper went the opposite direction — pure CSS strings, zero schema. Our DTCG-first bet is architecturally more ambitious and more interoperable. That differentiation is worth retaining: DesignJS is the HTML/CSS-native canvas *with* typed interop (Figma Variables ⇄ DTCG ⇄ Style Dictionary round-trip). Paper is the HTML/CSS-native canvas *without* it. Neither is wrong; they target different tails of the market.
 
 No Paper ⇄ DesignJS token round-trip is possible at the structured level — there's nothing structured to round-trip with. An agent can always translate string ↔ DTCG via prompt, but there's no machine path. This simplifies ADR-0008's relay narrative: the relay imports Figma Variables (structured) via Figma's own Dev Mode MCP, and we don't need to mention Paper interop.
+
+**Hierarchy** (verified 2026-04-24): zero. Paper has no native token model; tokens are CSS variables in the user's stylesheet, organised however the user organises their CSS. Our hybrid choice (§1) is more structured than Paper's, less rigid than Figma's — a conscious middle ground.
+
+**Color storage** (verified 2026-04-24): Paper's MCP `update_styles` accepts raw CSS strings, so OKLCH round-trips losslessly through their canvas (inferred — not empirically tested). Aligns with our OKLCH-canonical decision (§2).
 
 ### Tailwind v4 `@theme`
 
@@ -182,6 +188,8 @@ Switch the `cssVariables` sidecar from flat map to **DTCG-shaped nested JSON** (
 
 Stored at a new `tokens` key in `.designjs.json` (the existing `cssVariables` field becomes deprecated — see §8 for migration). Authoritative format on disk, in memory, and over the MCP wire.
 
+**Hybrid hierarchy — flat-with-dot-notation storage, three-level UI projection.** Storage follows DTCG's natural nested-object shape (effectively flat: `color.brand.primary` is a path through nested keys, not a rigid Collection/Group structure). The UI (§9) projects this onto Figma's familiar three-level Collection → Group → Variable presentation: the topmost object key in `tokens` is the Collection, intermediate keys are Groups, the leaf is the Variable. Permissive on disk (a user can flatten or restructure without breaking emission), familiar in UX (Figma vocabulary). Matches Pencil.dev's dot-notation grouping pattern at the storage layer; matches Tailwind v4's `--color-brand-primary` flat-with-prefix at the emission layer.
+
 ### 2. Type system — primitives in v0.3, composites in v0.4
 
 v0.3 ships **7 primitive DTCG types**: `color` · `dimension` · `number` · `duration` · `cubicBezier` · `fontFamily` · `fontWeight`. Ships enough for colour / spacing / typography tokens — which covers Story 6.2's open AC group list ("colors, spacing, typography, shadows, borders") for four of five categories.
@@ -189,7 +197,7 @@ v0.3 ships **7 primitive DTCG types**: `color` · `dimension` · `number` · `du
 **`strokeStyle`** (DTCG primitive) ships in v0.4 alongside the composites. The full DTCG composite set — `border` · `transition` · `shadow` · `gradient` · `typography` — ships in v0.4 so shadow and border groups work in the Assets panel. Until then, shadow and border values can be stored as `$type: "string"` (escape hatch) with a linter warning.
 
 Typed values for v0.3:
-- `color` — accepts hex, `rgb()`, `rgba()`, `hsl()`, `hsla()`, `oklch()`, `lab()`. Round-trips through Figma Variables' `RGBA` struct via a CSS-string ⇄ RGBA converter on the relay edge.
+- `color` — **OKLCH canonical**, with a `$extensions.designjs.colorSpace` field per token (`"oklch" | "srgb" | "p3"`) so non-OKLCH inputs round-trip without lossy normalisation. The picker accepts hex / `rgb()` / `rgba()` / `hsl()` / `hsla()` / `lab()` / `oklch()` and converts to OKLCH on store with a one-way conversion log to `console.info` for non-OKLCH inputs. **Why OKLCH:** Tailwind v4 (our emission target, §5) ships its default palette in OKLCH and treats it as the canonical form; perceptual uniformity matters for designed colour scales; CSS Color Module 4 supports OKLCH natively in target browsers. Figma stores sRGB (verified 2026-04-24); ADR-0008 relay does the OKLCH ⇄ sRGB conversion at the import/export edge — lossy on the OKLCH-to-sRGB direction (gamut clamp), lossless on sRGB-to-OKLCH. Flagged in the relay docs for users.
 - `dimension` — accepts `px`, `rem`, `em`, `%`, `vh`, `vw`, `fr`. Stored as CSS string; validation on write.
 - `duration` — `ms` / `s`; `cubicBezier` — 4-value array.
 
@@ -253,9 +261,11 @@ Modes emit per-mode via CSS attribute selectors:
 
 The canvas sets `data-designjs-mode` on the `:root` element to switch the active mode. Mode switching is a local editor UI (Topbar dropdown, stretch goal for v0.3); not persisted to `.designjs.json` beyond the default-mode pointer in `$extensions.designjs.collections`.
 
-### 6. Agent surface — new typed tools, old tools deprecated
+**Name-collision detection** — the path-to-CSS-variable transform is deterministic, so two distinct DTCG paths can collapse to the same CSS variable name (e.g. `color.brand.primary` and `color.brand-primary` both → `--color-brand-primary`). The emission pipeline detects this at load time and **refuses to emit until resolved**, surfacing the conflict in the Topbar via the existing variable-count badge as a red "X conflicts" marker. Style Dictionary precedent: same shape (build fails, lists offending tokens). Tailwind v4 has no built-in collision detection, so we own this. See Open Q §7 for the rationale.
 
-New tools alongside the existing flat ones:
+### 6. Agent surface — new typed tools replace old
+
+The new typed tool set:
 
 - `get_tokens({ mode?: string, resolve?: boolean })` → DTCG-shaped JSON. `resolve=true` chases aliases; default returns the raw tree with alias strings intact.
 - `set_tokens({ tokens: DTCGTree, mode?: string, replace?: boolean })` — merges by default; `replace` swaps the whole tree (Pencil's pattern).
@@ -263,7 +273,7 @@ New tools alongside the existing flat ones:
 - `list_modes({ collection?: string })` → per-collection mode list + default.
 - `set_mode(modeId)` — switches the canvas preview; equivalent to clicking the Topbar dropdown.
 
-The **existing `get_variables` / `set_variables` tools stay** for backwards compatibility, returning / accepting a flat view derived from the DTCG store (default mode, aliases resolved). Marked `@deprecated` in the MCP tool descriptions; removed in v0.5 with a migration guide.
+The existing `get_variables` / `set_variables` tools are **removed**, not deprecated. DesignJS has not done a public release; there are no third-party clients depending on the flat shape, so a deprecation window would be pure ceremony. The new typed tools land alongside the §1 data-model migration; the legacy MCP tools come out at the same time.
 
 Pattern borrowed from Pencil: a single `get_tokens` response includes both the tree and the available modes, so agents don't round-trip to discover what modes exist.
 
@@ -304,13 +314,110 @@ On next save, the file is written with `tokens` populated and `cssVariables` omi
 
 Projects not migrated yet continue to work via the deprecated `get_variables` / `set_variables` shape — no forced migration.
 
+### 9. UX — table-with-mode-columns + chip-in-input + global mode switcher
+
+The data model (§§1–7a) determines what's stored. This section determines what users see. Patterns lifted, adapted, and rejected from a 2026-04-24 Figma Variables UX audit (full research notes in `DesignJS-Notes/figma-variables-ux-research.md`):
+
+**UX philosophy — alignment first, divergence with justification.** Default to existing design-tool patterns (Figma primarily; Penpot, Pencil, Storybook secondary). Users arrive with mental models from those tools; re-learning is the dominant source of UX complexity. Borrow patterns where they fit; diverge only with a one-sentence written justification covering *what* we're doing differently, *why* the established pattern doesn't fit our context (HTML/CSS-native, agent-driven, pre-public), and *what compensates* for the unfamiliarity. If a behaviour exists in zero competitors, that's a yellow flag — usually means we're solving a non-problem or carrying an unstated constraint we should question. Each "Diverge from Figma" entry below carries its justification inline; "Lift from Figma" entries don't need one since alignment is the default.
+
+**Three surfaces** — each tuned to a different user state:
+
+- **Topbar popover (existing)** — `packages/app/src/components/VariablesPopover.tsx`. Always-accessible quick CRUD for the "I want to add or tweak one variable fast" mental model. Stays as a flat list with type filter; the existing affordance our users already know.
+- **Deselected-state right-sidebar section (new)** — when nothing is selected on the canvas, the inspector right-sidebar shows a "Local variables" section: most-recently-used variables and an "Open variables" button. Contextual; appears only in the deselected state, matching Figma's pattern. Quick "let me peek at what's defined" without committing to the modal.
+- **Full modal "Variables view" (new)** — launched from the popover, the sidebar section's "Open variables" button, or a keyboard shortcut. Bulk authoring lives here: modes-as-columns table, multi-collection switcher, alias editing. The popover and sidebar cannot scale to multi-collection × multi-mode without losing the "quick" property.
+
+**Browse / authoring layout:**
+
+- **Table with one column per mode**, leftmost = default. Variable name on the left; one cell per mode. This is the single most distinctive Figma pattern and matches our DTCG mode-extension shape exactly.
+- **Three-level hierarchy in the UI** (Collection → Group → Variable), **flat-with-dot-notation in storage** (§1). Collection switcher in the modal's left sidebar; group folders in the variable tree; variable rows in the table. The UI projects three rigid levels onto a permissive flat-with-dots data shape — users get Figma's familiar vocabulary; storage stays DTCG-natural and Tailwind-emission-friendly.
+- **Type filter** ("Sizing" / "Color" / "Typography" / "Effect"). DTCG distinguishes `dimension` / `color` / `fontFamily` / `duration` / `cubicBezier` etc. — keep those as explicit `$type`s (Figma collapses them all into `Number`; we do not, because CSS emission needs unit information). Picker groups by family so the surface still feels scannable.
+- **Visually collapse identical-across-modes rows** — Figma renders them as repeated values, which is noise at scale. We render a single span when all modes resolve to the same value.
+
+**Apply flow (where users meet the inspector):**
+
+- **`=` shortcut** in any numeric inspector field opens the variable picker scoped to compatible types. Lifted from Figma — lowest-friction apply flow they ship. Wire into our inspector's number-input primitives.
+- **Chip-in-input** — applied variable renders as a `gray pill: token-name + resolved-value` chip *inside* the property field (e.g. "spacing.lg / 16px"). Hover-icon on the chip detaches.
+- **Right-click → Apply variable** on color swatches, text properties, and visibility (boolean) controls.
+- **Square-vs-circle swatch** convention reserved for if we ever ship a second token-like primitive (presets / styles); for v0.3 we have one shape.
+
+**Aliases:**
+
+- Created via right-click → "Create alias" on a value cell, then picking another variable of the same `$type`.
+- Aliased cell renders the resolved value plus a reference-pill showing the source variable's name.
+- **Improve on Figma**: hover the reference-pill and we render the *full* alias chain (semantic → primitive → CSS value) in a tooltip. Important because devs reading our emitted Tailwind `@theme` need the chain — Figma only shows the immediate parent.
+
+**Mode switching:**
+
+- **Per-frame mode override** in the inspector (when a frame is selected) — same shape as Figma's "Apply variable mode" affordance, lives in the Layout or Appearance section. Mode-tag pill renders next to the layer in the Layers panel for any node with an override.
+- **Global preview switcher in the topbar** — a top-bar dropdown that flips the entire canvas between modes for preview. Figma deliberately doesn't ship this. We do, because for an HTML/CSS-native tool a global toggle (matching OS dark-mode toggles, Storybook backgrounds) is the strongest mental model. Maps onto a `data-designjs-mode` attribute selector on the document root in emitted CSS.
+- **Inheritance via CSS cascade** — modes set on an ancestor flow to descendants until a descendant overrides, matching how `prefers-color-scheme` / theme classes already work in real CSS. Free of cost; consistent with the HTML-native bet.
+
+**Single-token edit surface:**
+
+- Modal dialog opened from a hover-row → edit-icon. Fields: Name, Description, Value (per mode), Hide-from-publishing (when v0.4 ships publishing). DROP Figma's per-platform "Code syntax" field (Web/iOS/Android) — we emit one CSS target.
+- **Type immutable post-creation.** Dramatically simplifies emission and matches Figma's behaviour. Migration from flat `cssVariables` (§8) infers the type once on first load; subsequent edits cannot change it.
+
+**Explicitly skipped:**
+
+- **Styles vs Variables duality.** Figma carries this for legacy reasons — Color Styles predate Variables and handle multi-value resources (gradients, images, effects) that early Variables couldn't. We have no legacy. DTCG covers gradients via composite types (v0.4); Tailwind v4 `@theme` is the single emission target. One picker, one swatch shape.
+- **Authenticated-library publishing flows.** Figma's team-library / publishing UX is its own subsystem. Out of scope for v0.3; revisit if/when DesignJS grows a team-library story.
+
+### 10. Implementation phasing — three phases, two gates
+
+The full §§1–9 surface is ~5–6 weeks of focused work. Splitting into three checkpoints reduces blast radius, ships user-visible value at each gate, and isolates the highest-risk single change (storage shape migration) into the smallest phase.
+
+**Phase 1 — v0.3: foundation (~1.5 weeks).** Data shape + emission only; existing UX surface unchanged.
+
+| § | Scope | Notes |
+|---|---|---|
+| §1 | DTCG-shaped storage (flat-with-dots) | No `$extensions.designjs.modes` wiring yet |
+| §2 | All 7 typed primitives + OKLCH canonical | Conversion logic + `$extensions.designjs.colorSpace` field |
+| §5 | Tailwind v4 `@theme` dual-emit + collision detection | The headline user-visible payoff (`bg-brand-primary` "for free") |
+| §7 | DTCG import / export | Basic JSON pipe |
+| §8 | Migration from flat `cssVariables` | Auto-migrate on load with conservative type inference |
+
+Existing `VariablesPopover` continues unchanged behaviourally — it just reads/writes the new DTCG store underneath. Existing `get_variables` / `set_variables` MCP tools continue, returning a flat default-mode view derived from the DTCG store.
+
+**Phase 2 — v0.4-α: data + MCP (~1.5–2 weeks).** Modes, aliases, and the new typed agent surface. No new UX surface yet — Phase 2 is data-and-API only so the contract can settle before building UI on top of it.
+
+| § | Scope | Notes |
+|---|---|---|
+| §3 | Modes — Figma-shaped, `$extensions.designjs.modes` | Data model + per-mode resolution; no per-frame override UI yet |
+| §4 | Aliases — lazy resolution + cycle detection | `{path.to.token}` syntax + `resolve_alias` MCP tool |
+| §6 | 5 new typed MCP tools land; legacy `get_variables` / `set_variables` removed | No deprecation window per pre-public release (memory: feedback_no_premature_deprecation) |
+| §7a | Kit baseline tokens cascade | **Unblocks ADR-0007 implementation at this point** |
+
+By the end of Phase 2, agents can fully use the typed token surface; the canvas can resolve aliases and apply modes via the new MCP `set_mode` tool. Existing popover still works but shows only default-mode values — explicitly a transition state.
+
+**Phase 3 — v0.4-β: UX (~2–3 weeks).** The full §9 surface. Every UX decision in this phase aligns with Figma / Penpot / Pencil patterns first; divergences carry the inline justification per the §9 philosophy.
+
+| § | Scope | Notes |
+|---|---|---|
+| §9 surfaces | Three-tier — popover refactored, deselected-state sidebar section, full modal "Variables view" | Modal: modes-as-columns table, collection switcher, group folders, type-grouped picker, alias editor, edit dialog |
+| §9 apply flow | `=` shortcut in numeric inspector fields, chip-in-input, right-click apply | Wires into existing inspector primitives |
+| §9 mode switching | Topbar global mode switcher, per-frame override UI, layer-tree mode-tag pill | Topbar is the one diverge-from-Figma in this phase (justified per §9 philosophy: HTML/CSS-native users have an OS-dark-mode mental model Figma users don't) |
+| §9 alias UI | Right-click → Create alias + reference-pill + full-chain tooltip | Full-chain tooltip is the second justified divergence (devs reading emitted Tailwind `@theme` need the chain) |
+
+**Why this split:**
+
+1. **v0.3 is independently shippable + valuable.** Tailwind `@theme` emission alone is the "disproportionate value prop" (Consequences below) — typed primitives + auto-generated utilities + OKLCH fidelity without users learning a new UI.
+2. **Phase 2 / 3 boundary lets the data contract settle before UX is built on it.** Modes + aliases + new MCP tools land first; UX in Phase 3 is built against a stable substrate.
+3. **No half-baked UX.** Modes, aliases, and the modal are interdependent — splitting them across phases forces confusing mid-states ("modes column header but you can only have one mode"). They land together in Phase 3.
+4. **ADR-0007 unblocks at the Phase 2 boundary** when §7a kit cascade ships. ADR-0007 implementation can begin in parallel with Phase 3.
+5. **Migration risk is contained to v0.3.** Storage shape change (flat → DTCG) is the riskiest single change; isolating it in the smallest phase reduces blast radius.
+
+**Open at this layer (not architectural, project-planning):**
+
+- Calendar dates for each phase. Depend on prioritisation against other v0.3 work (Epic 8 polish, kit research, etc.) — outside the ADR's scope.
+- Whether Phase 3 itself sub-splits further if it runs long (e.g. modal first, then sidebar + topbar). Defer until Phase 3 estimate is concrete.
+
 ---
 
 ## Consequences
 
 - **Interchange unlocks.** DesignJS gains tokens round-trip with Tokens Studio, Style Dictionary, and (via ADR-0008 relay) Figma Variables. Doesn't ship as a DesignJS feature we market — it's a platform primitive that future features assume.
 - **Tailwind utilities just work.** Users set a color token, get `bg-brand-primary` in the block palette and in agent-generated HTML without extra plumbing. The `@theme` emission is ~20-line runtime code; the value prop is disproportionate.
-- **MCP surface grows by 5 tools** (`get_tokens`, `set_tokens`, `resolve_alias`, `list_modes`, `set_mode`). From 20 tools → 25. Deprecated `get_variables` / `set_variables` still surface, bringing tool-count visible to agents to 27 during the transition window. Competitive context (verified 2026-04-22): Figma Dev Mode MCP ships 15, Pencil 13 (with two composite `batch_*` tools), Paper 21, Onlook no MCP. DesignJS post-v0.3 at ~27 tools puts us at the upper end of the design-tool MCP range — worth monitoring, not a crisis. Composite-tool consolidation (Pencil's pattern) is not the industry direction; MCP guidance discourages overloading single tools with operation-string dispatch. Governance captured as a separate open discussion item, not in this ADR.
+- **MCP surface grows by 3 tools net.** Five new typed tools (`get_tokens`, `set_tokens`, `resolve_alias`, `list_modes`, `set_mode`) replace the two legacy tools (`get_variables` / `set_variables`) per §6 — no deprecation window because DesignJS hasn't done a public release. From 20 → 23 tools at v0.3. Competitive context (verified 2026-04-22): Figma Dev Mode MCP ships 15, Pencil 13 (with two composite `batch_*` tools), Paper 21, Onlook no MCP. DesignJS post-v0.3 at ~23 tools is firmly in the design-tool MCP range. Composite-tool consolidation (Pencil's pattern) is not the industry direction; MCP guidance discourages overloading single tools with operation-string dispatch. Governance captured as a separate open discussion item, not in this ADR.
 - **Assets panel in v0.3 can group by `$type`** per Story 6.2's open AC — the grouping key is the DTCG type field, not a separate "category" dimension we'd have to invent.
 - **Mode-switching UX is a small editor feature** — Topbar dropdown + a `data-designjs-mode` attribute + CSS attribute-selector overrides. Isolated concern; not coupled to the data model work.
 - **v0.3 scope grows by ~1 week** over the minimal "add grouping" option. Trading a 3-day schema band-aid (v0.3-early) for a 1-week schema-plus-emission effort (v0.3-mid) that doesn't need revisiting at v0.4 or v0.5.
@@ -323,17 +430,19 @@ Projects not migrated yet continue to work via the deprecated `get_variables` / 
 
 1. ~~**Paper.design verification.**~~ **Resolved 2026-04-22:** Paper does not ship a structured token MCP surface. Tokens are CSS strings applied via `update_styles`/`write_html`; no DTCG, no variable collections, no mode primitive. Our DTCG-first bet differentiates us (see §Survey → Paper.design). No cross-tool structured round-trip possible; agent prompt-translation is the only Paper ⇄ DesignJS path. *Left here as a record of the decision.*
 
-2. **Scope field — v0.4?** Figma's `scopes: ["ALL_FILLS", "CORNER_RADIUS", …]` prevents a spacing token from being applied to a fill. Not in DTCG core. Worth adopting as an `$extensions.designjs.scopes` string[] in v0.4 once the inspector can enforce it. Deferring for now.
+2. ~~**Scope field — v0.4?**~~ **Resolved 2026-04-24: skip indefinitely.** Only Figma ships per-token scopes, and verified-2026-04-24 their "enforcement" is just picker-visibility filtering (out-of-scope variables are *omitted* from the picker for that field) — not validation, not warning, not a real constraint. Tokens Studio, Style Dictionary, DTCG core, and Pencil all rely on `$type` alone. For an HTML/CSS-native canvas, the browser already silently ignores malformed bindings, so the marginal value of a soft-filter UX is dev-experience nice-to-have, not a load-bearing piece. Reserve `$extensions.designjs.scopes` namespace if a v0.5+ user-flow surfaces a real need. *Left here as a record.*
 
-3. **OKLCH / lab / Display P3.** v0.3 stores colours as CSS strings — `oklch(72% 0.11 178)` is a valid `$value` for `$type: "color"`. Tailwind v4 also supports OKLCH natively. Good enough. Follow-up Q: when we eventually round-trip with Figma Variables (which stores `RGBA`), do we lose OKLCH precision on export? Likely yes — flag it in the relay docs: "OKLCH values may be clamped to sRGB when exporting to Figma." Non-blocking.
+3. ~~**OKLCH / lab / Display P3.**~~ **Resolved 2026-04-24:** §2 promotes OKLCH to canonical with a `$extensions.designjs.colorSpace` field for graceful degradation. Driven by Tailwind v4 being our emission target (canonical OKLCH there); Figma uses sRGB and the ADR-0008 relay does the conversion at the import/export edge. OKLCH-to-sRGB is lossy on Figma export (gamut clamp); flagged in relay docs. *Left here as a record.*
 
-4. **Token-set composition (Tokens Studio's richer model) — v0.5?** Modes cover the 80% case. Token sets (layered files, `"theme": "Brand A + Dark"`) are a v0.5 advanced feature for users with multi-brand workflows. Deferred.
+4. ~~**Token-set composition (Tokens Studio's richer model) — v0.5?**~~ **Deferred to a future ADR (post-v0.3).** Modes cover the 80% case for v0.3. Token sets (layered files, `"theme": "Brand A + Dark"`) require their own design pass — composition rules, conflict resolution, UI for layering — and are not in scope this cycle. Re-open if multi-brand users push back. *Left here as a record.*
 
-5. **Deprecation timeline.** `get_variables` / `set_variables` removal in v0.5. Is that aggressive or lenient? Depends on external agent proliferation — if third-party clients rely on the flat shape, a longer deprecation window is kinder. Default to v0.5; revisit if user feedback suggests longer.
+5. ~~**Deprecation timeline.**~~ **Resolved 2026-04-24:** Not applicable. DesignJS has not done a public release; no third-party clients depend on the legacy `get_variables` / `set_variables` shape. §6 now removes them outright at the same time the new typed tools land — no deprecation window needed. Revisit only if a public release ships before the data-model migration. *Left here as a record.*
 
-6. **Migration for projects with cross-frame tokens.** Today `setProperty` iterates all frames (fixed in the alpha.1 regression pass). The new `@theme` emission writes a single `<style>` per frame. Is there a scenario where a frame should see a *different* set of tokens than its neighbours? None I can think of at v0.3. Flagging in case "sandbox frame" becomes a feature.
+6. ~~**Migration for projects with cross-frame tokens.**~~ **Resolved 2026-04-24:** split into two cases, both addressed.
+   - **Per-frame *mode* override** (frame picks which mode of the existing collection it renders) — already shipping in §9 Mode-switching. Matches Figma + Pencil + Storybook precedent. Use cases: brand A/B side-by-side, light/dark comparison frames.
+   - **Per-frame *value* override** (frame redefines token values, separate from mode) — **deferred to a future ADR.** Penpot tried this exact thing and called it "complex, no roadmap" (verified 2026-04-24); we follow their lead. Re-open if a real demand surfaces. *Left here as a record.*
 
-7. **Name-space collisions in Tailwind's `@theme`.** If a user defines both `color.brand.primary` (→ `--color-brand-primary`) and `color.brand-primary` (→ `--color-brand-primary`), the two collide in the emitted CSS. Proposed resolution: error at load time, surface in the Topbar via the existing variable-count badge as a red "X conflicts" marker. Small implementation item.
+7. ~~**Name-space collisions in Tailwind's `@theme`.**~~ **Resolved 2026-04-24: error at load time, hard-fail.** If a user defines both `color.brand.primary` (→ `--color-brand-primary`) and `color.brand-primary` (→ `--color-brand-primary`), the two collide in the emitted CSS. The §5 emission pipeline detects the collision deterministically and refuses to emit, surfacing the conflict in the Topbar via the existing variable-count badge as a red "X conflicts" marker until resolved. Style Dictionary's collision-warning precedent (verified 2026-04-24) confirms this is the right shape — silent last-write-wins is a deferred bug. Tailwind v4 itself has no built-in collision detection, so we own this. *Left here as a record.*
 
 ---
 
@@ -357,3 +466,135 @@ Projects not migrated yet continue to work via the deprecated `get_variables` / 
 - `packages/app/src/components/VariablesPopover.tsx` — current Topbar UI
 - PRD Story 6.2 — the ship state this ADR evolves
 - [ADR-0008](./0008-figma-import-strategy.md) — relay path for Figma Variables ingest
+
+---
+
+## Addendum (2026-05-04) — Phase 1 implementation status
+
+Phase 1 (per §10 phasing — §§1, 2, 5, 7 data layer, 8) shipped in
+four chunks on `adr-0009-phase-1`. Existing surface (popover, MCP
+`get_variables` / `set_variables`, persistence) continues unchanged
+behaviourally — the new DTCG store sits underneath and projects
+through a flat-shape adapter so every Phase 1 commit is non-breaking
+to consumers.
+
+What landed:
+
+- `67499c8` — **Chunk A: DTCG store + migration + variables.ts adapter.**
+  New `packages/app/src/canvas/tokens.ts` with DTCG types
+  (`Token`, `TokenTree`), module-level mutable store, dot-path
+  operations (get / set / delete / walk), the
+  `pathToCssVariable` ↔ `cssVariableToPath` bijection, all 7 §2
+  validators, key-prefix-first type inference (§8), and the legacy
+  round-trip helpers `inflateFromCssVariables` /
+  `flattenToCssVariables`. `variables.ts` refactored from a flat-Map
+  store into a thin adapter — public API unchanged so the popover,
+  MCP handlers, and persistence's `getExtras` channel keep working.
+- `563a906` — **Chunk B: OKLCH-canonical color storage + colorSpace.**
+  New `color-conversion.ts` — pure CSS Color 4 math, no deps. Parsers
+  for hex / rgb() / hsl() / oklch() (full unit coverage); conversion
+  path sRGB → linear sRGB → OKLab (Björn Ottosson's pre-composed
+  matrices) → OKLCH; `formatOKLCH` rounds to 4 / 4 / 3 decimals for
+  stable round-trip. `inflateFromCssVariables` now canonicalises
+  color tokens and tags `$extensions.designjs.colorSpace`.
+  Unrecognised literals (named colors, `currentColor`, `var(...)`)
+  preserve raw value — graceful degradation per §2.
+- `dcd055e` — **Chunk C: Tailwind v4 `@theme` dual-emit + collisions.**
+  New `token-emit.ts` walks the tree and emits two CSS blocks:
+  `@theme { ... }` for tokens whose CSS variable matches a Tailwind
+  v0.3 namespace (17 prefixes — color, spacing, font, radius,
+  shadow, ease, etc.), `:root { --x: ...; }` for everything else.
+  Collision detection per §7 — paths that collapse to the same CSS
+  variable name are *omitted* from emitted CSS (no last-write-wins
+  ambiguity reaches the canvas) and reported in the result's
+  `collisions: Collision[]` array so UI can surface the badge.
+  Output is sorted for deterministic round-trip.
+- `7742953` — **Chunk D: DTCG file import / export.** New `token-io.ts`
+  with `parseDTCG` / `serialiseDTCG`. Color tokens canonicalise on
+  parse but preserve any existing `colorSpace` annotation so external
+  DTCG files round-trip with their origin metadata intact.
+  `$description` and proprietary `$extensions` (Tokens Studio,
+  custom) pass through opaquely. Pretty-printed 2-space-indent
+  output; round-trip target met.
+
+Test coverage at Phase 1 close: **95/95** vitest specs across four
+files green; typecheck clean; existing legacy-flat consumers
+unchanged.
+
+What's deferred (per §10):
+
+- **Phase 2 (v0.4-α):** §3 modes, §4 aliases, §6 new typed MCP tools
+  (replace legacy at the same time — no deprecation per pre-public
+  release), §7a kit cascade. **Unblocks ADR-0007** at Phase 2 close.
+- **Phase 3 (v0.4-β):** §9 surfaces — full modal "Variables view",
+  deselected-state sidebar section, Topbar global mode switcher,
+  per-frame override UI, layer-tree mode-tag pill, `=` shortcut +
+  chip-in-input + right-click apply, alias UX. Topbar `Cmd+Shift+E`
+  DTCG export action also lands here (data-layer is in Chunk D
+  already).
+
+Three notes worth recording:
+
+- **The popover continues to work unchanged in Phase 1.** It reads
+  via the legacy `variables.ts` adapter, which projects DTCG to the
+  flat shape. Phase 3 replaces the popover wholesale with the new
+  three-surface UX (§9). Until then it shows default-mode values
+  with no mode/alias affordance — explicitly a transition state, not
+  the destination.
+- **`@theme` emission is wired but not yet *injected* into iframes.**
+  `emitTokens` returns CSS strings; consuming the strings (a runtime
+  `<style>` injected into each frame's `<head>` via the existing
+  `canvas:frame:load` listener in `App.tsx`) is a thin wiring step
+  that lands in Phase 2 alongside modes — modes share the injection
+  surface and we want to wire it once.
+- **Color canonicalisation is one-way today.** OKLCH → sRGB
+  conversion (for ADR-0008 relay export to Figma) is not yet
+  implemented; the colorSpace annotation flags the original source
+  space so Phase 2 / ADR-0008's relay can do the export-edge clamp.
+  v0.3 readers (browsers, Style Dictionary, Tokens Studio) all
+  understand OKLCH natively.
+
+---
+
+## Addendum (2026-05-06) — Post-Phase-1 fix: hyphen-as-separator inference removed
+
+Phase 1 Chunk A's `cssVariableToPath` split CSS variable names on `-`
+to derive a tree path (e.g. `--color-brand-primary` → `color.brand.primary`).
+That made the mapping non-injective: writing both `--brand-primary` and
+`--brand-primary-hover` through `set_variables` silently destroyed the
+first because their inferred paths overlapped, and `setToken` clobbers a
+leaf when a deeper path lands on it.
+
+Surfaced as a real failure on the ADR-0008 Path A Figma relay e2e
+(`e7fc44d`), where the fixture mirrors how Figma Variables / Tokens
+Studio / Style Dictionary all emit names in practice — flat CSS-var-
+style with internal hyphens that don't denote hierarchy. None of those
+tools try to recover hierarchy from a flat name; they all source it
+from explicit nested input. Aligning with that — `cssVariableToPath`
+now returns the CSS variable name as a single path segment — fixes the
+relay without precluding the hybrid-hierarchy story for the Phase 2
+MCP surface or the Phase 3 popover, both of which take explicit nested
+input via `parseDTCG` / `loadTokenTree`.
+
+What landed:
+
+- `2055408` — **Drop hyphen-as-separator inference.** `cssVariableToPath`
+  is now `cssVar.replace(/^--/, "")`. Header comment in `tokens.ts`
+  rewritten to record the contract and the established-tools
+  precedent. Two existing tests for the dotted-path inference
+  rewritten to assert the new contract; one regression test asserts
+  that prefix-overlapping names round-trip without one clobbering the
+  other.
+
+Test coverage post-fix: **97/97** vitest specs (was 95/95 — added the
+prefix-collision regression and a `pathToCssVariable` distinctness
+assertion); ADR-0008 Path A relay e2e now passes end-to-end.
+
+The §1 "hybrid hierarchy" decision is unchanged — hierarchy always
+came from DTCG-shaped input, not from the legacy CSS-var adapter.
+This fix removes a sharp edge from the legacy path that the §10
+Phase 1 scope had glossed over.
+
+---
+
+*End of ADR-0009.*

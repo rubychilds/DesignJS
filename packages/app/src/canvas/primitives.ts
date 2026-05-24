@@ -1,5 +1,5 @@
 import type { Component, Editor } from "grapesjs";
-import { createArtboard } from "./artboards.js";
+import { createArtboard, PAGE_ROOT_ATTR } from "./artboards.js";
 
 /**
  * Per ADR-0005: shape-shaped primitive vocabulary mapped to HTML/CSS storage.
@@ -56,8 +56,121 @@ export function primitiveTypeOf(component: Component): PrimitiveType | null {
 
   const tag = ((component.get("tagName") as string | undefined) ?? "").toLowerCase();
   if (tag === "img") return "image";
-  if (TEXT_TAGS.has(tag)) return "text";
+  // Tag in TEXT_TAGS isn't enough — captured pages routinely use <a>, <span>,
+  // <button>, <label> as inline containers for non-text content (think the
+  // Wikipedia logo: <a> wrapping two <img> children). Promoting those to our
+  // `text` primitive mislabels them in the layer tree and surfaces typography
+  // controls in the inspector that don't apply. Require actual text content.
+  if (TEXT_TAGS.has(tag) && hasOnlyTextContent(component)) return "text";
   return null;
+}
+
+/**
+ * True if the component's direct children are entirely textnodes (with
+ * non-whitespace content) and inline-text-formatting elements (<br>, <strong>,
+ * <em>, <code>). False for empty elements and for elements containing any
+ * element child outside that small allow-list (<img>, <svg>, nested <div>, …).
+ *
+ * Used by {@link primitiveTypeOf} and by the inspector's typography /
+ * auto-layout applicability checks to distinguish "this is actually text"
+ * from "this is a container that happens to use a text-default tag".
+ */
+const INLINE_TEXT_FORMATTING_TAGS = new Set([
+  "br",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "s",
+  "small",
+  "code",
+  "mark",
+  "sub",
+  "sup",
+]);
+
+export function hasOnlyTextContent(component: Component): boolean {
+  const children =
+    (component.components() as unknown as { toArray: () => Component[] }).toArray();
+  if (children.length === 0) return false;
+  let sawText = false;
+  for (const child of children) {
+    const childType = (child.get("type") as string | undefined) ?? "";
+    if (childType === "textnode") {
+      const content = ((child.get("content") as string | undefined) ?? "").trim();
+      if (content) sawText = true;
+      continue;
+    }
+    const childTag = ((child.get("tagName") as string | undefined) ?? "").toLowerCase();
+    if (INLINE_TEXT_FORMATTING_TAGS.has(childTag)) {
+      // Recurse — inline formatting tags can still wrap real text.
+      if (hasOnlyTextContent(child)) sawText = true;
+      continue;
+    }
+    return false;
+  }
+  return sawText;
+}
+
+/**
+ * Single source of truth for "is this component actually a text object?"
+ * Combines the tag heuristic with a content check so callers (layer tree
+ * iconography, typography inspector applicability, auto-layout hiding) all
+ * agree on what counts as text. Trusts an explicit `data-oc-shape="text"`
+ * marker over the heuristic.
+ */
+export function isActualTextComponent(component: Component): boolean {
+  const attrs =
+    (component as unknown as { getAttributes?: () => Record<string, unknown> }).getAttributes?.() ??
+    {};
+  if (attrs["data-oc-shape"] === "text") return true;
+  const tag = ((component.get("tagName") as string | undefined) ?? "").toLowerCase();
+  if (!TEXT_TAGS.has(tag)) return false;
+  return hasOnlyTextContent(component);
+}
+
+/**
+ * Tag-based human label used by the Layers tree when no primitive concept
+ * applies. Replaces GrapesJS's `getName()` which auto-labels any element with
+ * textnode children as "Text", causing a "Text + div icon" mismatch.
+ */
+const TAG_LABELS: Record<string, string> = {
+  div: "Div",
+  section: "Section",
+  article: "Article",
+  aside: "Aside",
+  header: "Header",
+  footer: "Footer",
+  nav: "Nav",
+  main: "Main",
+  a: "Link",
+  button: "Button",
+  span: "Span",
+  label: "Label",
+  ul: "List",
+  ol: "List",
+  li: "List item",
+  p: "Paragraph",
+  blockquote: "Quote",
+  h1: "Heading 1",
+  h2: "Heading 2",
+  h3: "Heading 3",
+  h4: "Heading 4",
+  h5: "Heading 5",
+  h6: "Heading 6",
+  form: "Form",
+  input: "Input",
+  textarea: "Textarea",
+  select: "Select",
+  video: "Video",
+  svg: "SVG",
+};
+
+export function labelForTag(tag: string | undefined | null): string {
+  if (!tag) return "Node";
+  const lower = tag.toLowerCase();
+  return TAG_LABELS[lower] ?? lower;
 }
 
 function isPrimitiveType(s: string): s is PrimitiveType {
@@ -150,13 +263,32 @@ export function createPrimitive(
 }
 
 /**
- * Page-root wrapper lookup — the first frame's wrapper Component. Per
- * ADR-0006 the first frame on the canvas is semantically "the page"; loose
- * primitives attach there instead of the currently-active frame.
+ * Page-root wrapper lookup — the wrapper Component of the frame marked
+ * with {@link PAGE_ROOT_ATTR}. Per ADR-0006 the page-root frame is
+ * semantically "the page"; loose primitives attach there instead of the
+ * currently-active frame.
+ *
+ * Closes ADR-0006 Open Question §1 — the previous "first frame in
+ * document order" rule was fragile to drag-reorder / deletion / non-
+ * deterministic load order. {@link ensurePageRoot} is the single writer
+ * of the marker; this is the reader, with a first-frame fallback for
+ * legacy projects whose saved data predates the flag.
  */
 function getPageRootWrapper(editor: Editor): Component | null {
   const frames = editor.Canvas.getFrames?.() ?? [];
   if (frames.length === 0) return null;
+  for (const f of frames) {
+    const wrapper = (f as unknown as { get?: (k: string) => unknown }).get?.(
+      "component",
+    ) as
+      | (Component & { getAttributes?: () => Record<string, unknown> })
+      | undefined;
+    const attrs = wrapper?.getAttributes?.() ?? {};
+    if (attrs[PAGE_ROOT_ATTR] != null) return wrapper ?? null;
+  }
+  // Legacy fallback — pre-`ensurePageRoot` projects don't carry the
+  // marker. Treat the first frame in document order as the page root,
+  // matching the original behaviour.
   const first = frames[0] as unknown as { get?: (k: string) => unknown };
   const wrapper = first.get?.("component");
   return (wrapper as Component | undefined) ?? null;

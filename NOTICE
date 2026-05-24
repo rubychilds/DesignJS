@@ -1,0 +1,22 @@
+DesignJS
+Copyright (c) Ruby Childs and contributors
+
+This product is licensed under the MIT License (see LICENSE).
+
+Third-party attribution
+-----------------------
+
+The hybrid-backplate full-page screenshot algorithm in
+  packages/chrome-extension/src/capture/screenshot-stitcher.ts
+follows the pattern from simov/screenshot-capture
+  https://github.com/simov/screenshot-capture
+which is also MIT-licensed. The implementation was rewritten from scratch
+for DesignJS; only the algorithmic approach (scroll-and-stitch with
+scrollbar hiding) is borrowed.
+
+Reference / research checkouts under the repo root
+  SingleFile/, Blipshot/, onlook/, penpot/, flux/, chrome-devtools-mcp/,
+  screenshot-capture/
+are upstream projects retained for study and are not redistributed as part
+of any published DesignJS package. See each subdirectory's LICENSE for its
+terms.

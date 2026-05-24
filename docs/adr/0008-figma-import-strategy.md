@@ -1,7 +1,7 @@
 # ADR-0008: Figma → DesignJS import strategy
 
-**Status:** Proposed
-**Date:** April 22, 2026
+**Status:** Accepted (Path A — relay docs shipped); Path B (first-party plugin) remains deferred per §2 below
+**Date:** April 22, 2026 (Proposed); Path A accepted April 24, 2026 after the docs + relay e2e shipped
 **Owner:** Architecture
 **Related:** [ADR-0005](./0005-html-primitives-mapping.md) (HTML primitives — the target shape), [ADR-0007](./0007-user-extensibility.md) (blocks + Tailwind theme); PRD Story 6.3 (parked → v0.3, 2026-04-18 spike), PRD Story 3.1 follow-up (`2de1520` — Figma binary clipboard refusal); paper.design/docs/mcp (relay precedent)
 
@@ -196,3 +196,52 @@ Path B's AC is written when we commit to it (v0.3-late or v0.4 per §2 above).
 - Figma Dev Mode MCP — https://help.figma.com/hc/en-us/articles/32132100833559-Guide-to-the-Dev-Mode-MCP-Server
 - Figma Plugin API reference — https://developers.figma.com/docs/plugins/api/
 - Alex Harri, "The web's clipboard, and how it stores data of different types" — the definitive reference on the fig-kiwi comment-tunneling trick
+
+---
+
+## Addendum (2026-04-24) — Path A implementation notes
+
+Path A shipped in two commits across two repositories:
+
+- `e7fc44d` (this repo) — `e2e/fixtures/figma-relay-sample.json` +
+  `e2e/story-figma-relay.spec.ts`. The fixture models what an agent
+  would emit after walking Figma's `get_design_context` and
+  `get_variable_defs`: four top-level components (eyebrow, headline,
+  pricing card, CTA) + a token map referenced by `var(--…)` inside
+  the translated HTML. The spec drives the relay round trip through
+  the existing `set_variables` and `add_components` tools — no new
+  MCP tool, which was the load-bearing constraint of the strategy.
+- `8469a12` (`designjs-docs` repo) — `guides/figma-import.mdx` +
+  `concepts/figma-relay.mdx` + `docs.json` nav entries. The guide
+  leads with the Dev Mode requirement per Open Question 3 above. The
+  concept page records the cost / quality comparison across the four
+  candidate strategies (paste / REST / plugin / relay) and explains
+  what each piece of the relay does at runtime.
+
+Three notes worth recording:
+
+- **Open Question 1 was resolved (a) — fixture-based test.** The
+  spec stages Figma's output as a JSON fixture rather than running a
+  second MCP server in the test process. This sidesteps the
+  dual-server e2e infrastructure problem entirely; the relay's
+  DesignJS half is exactly what Story 2.x already exercises, and the
+  fixture stands in for whatever the agent translates from upstream.
+  No `FIGMA_RELAY_INTEGRATION` env var, no scheduled cron build —
+  the spec runs in the default `pnpm test:e2e` set.
+- **Open Question 4 was resolved toward "modest fixture, not full
+  page-walk."** Four components (~20 lines of HTML each) is enough
+  to verify the round trip without committing the maintenance cost
+  of a 100-node fixture that would ossify around our current
+  Tailwind generation. We can grow the fixture if the relay walks
+  surface specific bugs; we can't easily shrink one if it doesn't.
+- **`paste-import.ts`'s `FIGMA_BLOCKED_MESSAGE` already points users
+  at the relay flow** (the message says "pair the Figma Dev Mode MCP
+  server with DesignJS in Cursor / Claude Code so an agent can
+  translate the design"). Now that the relay docs page exists, a
+  follow-up can swap the `console.warn` line for a docs-URL link
+  (Open Question 5). Out of scope for this addendum since the toast
+  surface itself is gated on ADR-0001 Phase D's Sonner wiring.
+
+Path B (first-party plugin) remains deferred per §2. Gate is
+unchanged: cut Path B in v0.3-late if the relay docs hit >200 unique
+pageviews in their first four weeks, otherwise push to v0.4.

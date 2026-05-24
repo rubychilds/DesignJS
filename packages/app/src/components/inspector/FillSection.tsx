@@ -2,7 +2,7 @@ import * as React from "react";
 import type { Component } from "grapesjs";
 import { Eye, EyeClosed, Minus, PlusOutline } from "../../canvas/chrome-icons.js";
 import { cn } from "../../lib/utils.js";
-import { clearStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
+import { clearStyle, readEffectiveStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
 import { InspectorSection } from "./InspectorSection.js";
 import { NumberInput } from "../ui/number-input.js";
 import { ColorField } from "./controls/ColorField.js";
@@ -39,6 +39,12 @@ function parseStack(bgImage: string, bgColor: string): FillLayer[] | null {
   if (!img || img === "none") {
     if (!col) return [];
     const c = parseColor(col);
+    // Computed `background-color` on an unstyled element returns
+    // `rgba(0, 0, 0, 0)` (browser default), which parseColor reads as
+    // opacity:0. That's not a user-set fill — treat it as empty so
+    // addLayer doesn't seed every new row with opacity:0 (the bug that
+    // produced `linear-gradient(rgba(R,G,B,0), …)` stacks).
+    if (c.opacity === 0) return [];
     return [newLayer(c.hex, c.opacity)];
   }
 
@@ -151,8 +157,17 @@ function FillRow({
 export function FillSection({ component }: { component: Component }) {
   const isText = isTypographyTarget(component);
 
-  const bgImage = readStyle(component, "background-image");
-  const bgColor = readStyle(component, "background-color");
+  // readEffectiveStyle: prefer set styles, fall back to computed when
+  // captured-page elements route their styles via GrapesJS' CSS Manager
+  // instead of the component model (extension capture path).
+  //
+  // textColor intentionally uses readStyle (not effective) — when the
+  // element has no explicit color, falling back to computed returns
+  // the inherited value (often black), which renders as "100% opacity
+  // color set" in the picker even though the user hasn't set anything.
+  // Better to show empty / unset for inherited color.
+  const bgImage = readEffectiveStyle(component, "background-image");
+  const bgColor = readEffectiveStyle(component, "background-color");
   const textColor = readStyle(component, "color");
   const parsed = React.useMemo(() => {
     if (isText) {

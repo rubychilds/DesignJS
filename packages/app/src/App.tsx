@@ -5,21 +5,48 @@ import type { Component, Editor } from "grapesjs";
 import "grapesjs/dist/css/grapes.min.css";
 
 import { editorOptions, PRIMITIVE_BASE_CSS } from "./canvas/editor-options.js";
-import { ensureDefaultArtboard } from "./canvas/artboards.js";
+import { ensureDefaultArtboard, ensurePageRoot, healFrameDimensions } from "./canvas/artboards.js";
+import { widenComponentStylable } from "./canvas/widen-stylable.js";
 import { attachPasteImport, importPastedHtml } from "./canvas/paste-import.js";
 import { attachPersistence, loadProject, saveProject } from "./canvas/persistence.js";
 import {
   getVariables,
+  loadTokens,
   loadVariables,
   resetVariablesStore,
   setVariables,
 } from "./canvas/variables.js";
+import { getTokenTree, type TokenTree } from "./canvas/tokens.js";
 import { BridgeClient } from "./bridge/client.js";
 import { buildHandlers } from "./bridge/handlers.js";
 import { Topbar, type SaveStatus } from "./components/Topbar.js";
 import { Shell } from "./components/Shell.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { TooltipProvider } from "./components/ui/tooltip.js";
+
+/**
+ * Hydrate the design-tokens store from saved data, preferring the new
+ * DTCG-shaped `tokens` field and falling back to the legacy
+ * `cssVariables` flat-map with a one-time migration log per
+ * ADR-0009 §8. Both fields absent → no-op (fresh canvas).
+ */
+function applyTokenStateFromSaved(
+  editor: Editor,
+  tokens: TokenTree | undefined,
+  cssVariables: Record<string, string> | undefined,
+): void {
+  if (tokens) {
+    loadTokens(editor, tokens);
+    return;
+  }
+  if (cssVariables && Object.keys(cssVariables).length > 0) {
+    console.info(
+      "[designjs] migrating legacy cssVariables → DTCG tokens (ADR-0009 §8). " +
+        "Saved file will use the new shape on next save.",
+    );
+    loadVariables(editor, cssVariables);
+  }
+}
 
 export function App() {
   const [connected, setConnected] = useState(false);
@@ -50,6 +77,16 @@ export function App() {
     editorRef.current = editor;
     setEditor(editor);
 
+    // Widen the `stylable` allowlist on built-in component types so
+    // captured HTML preserves width / height / display / flex / etc.
+    // on import. The default `wrapper` type is the load-bearing one
+    // (narrowed to 7 background props upstream); other types default to
+    // `true` but we make the surface explicit and forward-compatible.
+    // See widen-stylable.ts for the full set + rationale. Must run
+    // before any frame creation / loadProjectData so the override
+    // applies to all subsequently-built components.
+    widenComponentStylable(editor);
+
     // Register the iframe-CSS injection listener FIRST — before loadProject
     // or ensureDefaultArtboard. Those can synchronously create frames whose
     // `canvas:frame:load` event might fire before any later-registered
@@ -64,18 +101,48 @@ export function App() {
       style.textContent = PRIMITIVE_BASE_CSS;
       doc.head.appendChild(style);
     };
-    editor.on("canvas:frame:load", ({ window: frameWindow, el }) => {
+    // canvas:frame:load fires once on iframe onload. Some frame creation
+    // paths (re-mount, add-then-mount) didn't reliably trigger it for our
+    // listener; canvas:frame:load:head + :body both also fire on iframe
+    // life-cycle so listening to all three is the belt-and-braces fix.
+    editor.on("canvas:frame:load canvas:frame:load:head canvas:frame:load:body", (ev) => {
+      const { window: frameWindow, el } = (ev ?? {}) as {
+        window?: Window;
+        el?: HTMLIFrameElement;
+      };
       injectPrimitiveCssIntoDoc(frameWindow?.document ?? el?.contentDocument);
     });
     // Cover frames that had already loaded by the time we registered the
-    // listener (the auto-frame races us on initial app boot).
-    editor.Canvas.getFrames().forEach((frame) => {
-      const view = (frame as unknown as {
-        view?: { getWindow?: () => Window | undefined };
-      }).view;
-      const win = view?.getWindow?.();
-      injectPrimitiveCssIntoDoc(win?.document);
-    });
+    // listener (the auto-frame races us on initial app boot), and any
+    // frames whose load events fired before listener attach. A short
+    // polling pass catches re-mounts that re-create the iframe document
+    // without re-firing canvas:frame:load (a known soft spot of GrapesJS
+    // 0.22.x multi-frame).
+    const sweepAllFrames = (): void => {
+      editor.Canvas.getFrames().forEach((frame) => {
+        const fAny = frame as unknown as {
+          view?: {
+            getWindow?: () => Window | undefined;
+            el?: HTMLIFrameElement;
+          };
+        };
+        const win = fAny.view?.getWindow?.();
+        injectPrimitiveCssIntoDoc(win?.document ?? fAny.view?.el?.contentDocument);
+      });
+    };
+    sweepAllFrames();
+    // 5 polls over 2.5s catches the common create-then-mount window;
+    // injection is idempotent (`getElementById` guard) so duplicate calls
+    // are cheap.
+    let sweepCount = 0;
+    const sweepInterval = window.setInterval(() => {
+      sweepAllFrames();
+      sweepCount += 1;
+      if (sweepCount >= 5) window.clearInterval(sweepInterval);
+    }, 500);
+    // Also sweep whenever a new frame is added — covers post-boot
+    // captures (which are the user-visible regression case).
+    editor.on("frame:add", sweepAllFrames);
 
     // Reset the module-scoped variables store so a Vite HMR reload doesn't
     // carry stale entries forward into the rehydration step below.
@@ -84,12 +151,13 @@ export function App() {
     try {
       const saved = await loadProject();
       if (saved) {
-        const { cssVariables, ...projectData } = saved as {
+        const { tokens, cssVariables, ...projectData } = saved as {
+          tokens?: TokenTree;
           cssVariables?: Record<string, string>;
           [k: string]: unknown;
         };
         editor.loadProjectData(projectData);
-        if (cssVariables) loadVariables(editor, cssVariables);
+        applyTokenStateFromSaved(editor, tokens, cssVariables);
       }
     } catch (err) {
       console.warn("[designjs] load failed:", err);
@@ -102,6 +170,29 @@ export function App() {
     // boot shows *something*. Idempotent — no-op when the first frame is
     // already named (saved-project restore path).
     ensureDefaultArtboard(editor);
+
+    // Stamp the page-root marker on whichever frame is the page (idempotent
+    // if a saved project already carries it). Closes ADR-0006 Open Q §1 —
+    // before this, getPageRootWrapper relied on first-frame-in-document-
+    // order, which was fragile to drag-reorder / deletion / non-
+    // deterministic load order.
+    ensurePageRoot(editor);
+
+    // Restore dimensions on any frame whose persisted state lost
+    // width/height (a fixed-since legacy-corruption case — see
+    // healFrameDimensions docstring). Runs after a delay so the iframes
+    // have actually mounted; otherwise offsetWidth is 0 and the heal
+    // measurement is garbage.
+    window.setTimeout(() => {
+      try {
+        const healed = healFrameDimensions(editor);
+        if (healed > 0) {
+          console.info(`[designjs] healed ${healed} frame(s) with missing dimensions`);
+        }
+      } catch (err) {
+        console.warn("[designjs] healFrameDimensions failed:", err);
+      }
+    }, 1500);
 
     // Fit the viewport to all frames after boot so the default 1280×800
     // frame (or whatever the saved project has) is visible from the first
@@ -135,17 +226,18 @@ export function App() {
       save: () =>
         saveProject({
           ...(editor.getProjectData() as Record<string, unknown>),
-          cssVariables: getVariables(),
+          tokens: getTokenTree(),
         }),
       load: async () => {
         const data = await loadProject();
         if (data) {
-          const { cssVariables, ...projectData } = data as {
+          const { tokens, cssVariables, ...projectData } = data as {
+            tokens?: TokenTree;
             cssVariables?: Record<string, string>;
             [k: string]: unknown;
           };
           editor.loadProjectData(projectData);
-          if (cssVariables) loadVariables(editor, cssVariables);
+          applyTokenStateFromSaved(editor, tokens, cssVariables);
         }
         return data;
       },
@@ -190,7 +282,7 @@ export function App() {
         setSaveStatus("error");
         setSaveError(err.message);
       },
-      getExtras: () => ({ cssVariables: getVariables() }),
+      getExtras: () => ({ tokens: getTokenTree() }),
     });
 
     const handlers = buildHandlers(editor);
@@ -216,7 +308,7 @@ export function App() {
     try {
       await saveProject({
         ...(editor.getProjectData() as Record<string, unknown>),
-        cssVariables: getVariables(),
+        tokens: getTokenTree(),
       });
       setSaveStatus("saved");
       setSaveError(null);

@@ -1,18 +1,25 @@
 /*
- * DesignJS capture overlay — styles scoped to the injected container.
+ * DesignJS capture overlay — styles for the injected container.
  *
  * Because we render inside the HOST PAGE's DOM (not a browser-action
- * popup), CSS leaks go BOTH ways: host CSS can cascade into our
- * overlay, and our CSS can cascade into the host. `all: initial` at
- * the container handles the inbound direction.
+ * popup), CSS leaks go BOTH ways. The inbound direction (host CSS
+ * cascading into our overlay) is handled below by `all: initial` on
+ * the container.
  *
- * For the outbound direction we skip Tailwind's preflight layer — its
- * global resets (`*, ::before, ::after { box-sizing: border-box }`,
- * `h1-h6 { font-size: inherit }`, `html, :host { line-height: 1.5 }`,
- * etc.) would otherwise restyle every site the extension runs on. We
- * keep theme (CSS variables — host pages don't reference our vars so
- * no visible effect) and utilities (class-scoped — only our elements
- * carry the classes).
+ * The outbound direction (our CSS cascading into the host) is handled
+ * at build time: postcss.config.js prefixes every selector with
+ * `#designjs-capture-root` so even though style-loader injects this
+ * stylesheet into the host's <head>, no rule matches outside our
+ * container.
+ *
+ * Authoring rules (see postcss.config.js for the plugin):
+ * - Don't use CSS nesting — every nested rule would be re-prefixed and
+ *   stop matching.
+ * - Use `:root` to mean "the overlay container itself"; the prefixer
+ *   rewrites `:root` and `:host` to the bare prefix. (Tailwind v4
+ *   emits `:root, :host` for `@theme` — same rewrite handles both.)
+ * - Don't write selectors that already include `#designjs-capture-root`;
+ *   the prefixer adds it.
  */
 
 @layer theme, components, utilities;
@@ -21,7 +28,7 @@
 @import "./theme.css";
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
-#designjs-capture-root {
+:root {
   /* Reset host-page inheritance so only our styles matter. */
   all: initial;
 
@@ -36,29 +43,29 @@
   color: var(--color-foreground);
   line-height: 1.45;
   pointer-events: auto;
+}
 
-  /* Force the font on every descendant so host-page font-family doesn't
-     leak through. Tailwind utilities override where relevant. */
-  *,
-  *::before,
-  *::after {
-    font-family: inherit;
-    box-sizing: border-box;
-  }
+/* Force the font on every descendant so host-page font-family doesn't
+   leak through. Tailwind utilities override where relevant. */
+*,
+*::before,
+*::after {
+  font-family: inherit;
+  box-sizing: border-box;
+}
 
-  /* Neutralise heading user-agent defaults. Chrome ships h1 as
-     `font-size: 2em; font-weight: bold; margin: 0.67em 0` — inside our
-     320px overlay that renders the "DesignJS capture" title at ~26px
-     and on two lines. We render our own typography via Tailwind classes,
-     so reset here and let the class utilities drive sizing. */
-  h1, h2, h3, h4, h5, h6 {
-    font-size: inherit;
-    font-weight: inherit;
-    margin: 0;
-  }
+/* Neutralise heading user-agent defaults. Chrome ships h1 as
+   `font-size: 2em; font-weight: bold; margin: 0.67em 0` — inside our
+   320px overlay that renders the "DesignJS capture" title at ~26px
+   and on two lines. We render our own typography via Tailwind classes,
+   so reset here and let the class utilities drive sizing. */
+h1, h2, h3, h4, h5, h6 {
+  font-size: inherit;
+  font-weight: inherit;
+  margin: 0;
+}
 
-  /* Same cleanup for p / code / kbd — avoids host-page margins creeping in. */
-  p, code, kbd, pre {
-    margin: 0;
-  }
+/* Same cleanup for p / code / kbd — avoids host-page margins creeping in. */
+p, code, kbd, pre {
+  margin: 0;
 }

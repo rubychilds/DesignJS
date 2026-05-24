@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditorMaybe } from "@grapesjs/react";
 import type { Component, Editor, Frame } from "grapesjs";
 import {
@@ -21,6 +21,7 @@ import {
   renameArtboard,
 } from "../canvas/artboards.js";
 import {
+  labelForTag,
   PRIMITIVE_LABEL,
   primitiveTypeOf,
   textContentOf,
@@ -46,6 +47,28 @@ function frameAttr(frame: Frame, key: string): unknown {
 function frameWrapper(frame: Frame): Component | undefined {
   const c = (frame as unknown as { get: (k: string) => unknown }).get?.("component");
   return c as Component | undefined;
+}
+
+/**
+ * Walk up from `component` collecting every ancestor's id, stopping at (and
+ * excluding) the enclosing frame wrapper. Used to force-open the rows that
+ * sit between a `FrameLayerRow` and the row for the currently-selected
+ * component, so canvas selection reveals nested elements in the tree.
+ */
+function collectAncestorIds(component: Component, frames: Frame[]): string[] {
+  const wrapperIds = new Set(
+    frames
+      .map((f) => frameWrapper(f)?.getId())
+      .filter((id): id is string => Boolean(id)),
+  );
+  const ids: string[] = [];
+  let cur: Component | null =
+    (component as unknown as { parent?: () => Component | null }).parent?.() ?? null;
+  while (cur && !wrapperIds.has(cur.getId())) {
+    ids.push(cur.getId());
+    cur = (cur as unknown as { parent?: () => Component | null }).parent?.() ?? null;
+  }
+  return ids;
 }
 
 function useFrames(editor: Editor | undefined): Frame[] {
@@ -148,7 +171,11 @@ function derivePrimitiveLabel(
 
   if (primitive) return PRIMITIVE_LABEL[primitive];
 
-  return component.getName?.() ?? tag ?? "node";
+  // Don't fall back to component.getName() — GrapesJS auto-names any element
+  // with textnode children "Text", which produces a "Text + div icon"
+  // mismatch in the layer tree. Derive from the tag instead so the label
+  // always agrees with the icon (which is also tag-based when primitive=null).
+  return labelForTag(tag);
 }
 
 /* ─────────────────────────────── layer row (regular components) ─────── */
@@ -158,9 +185,18 @@ interface LayerRowProps {
   depth: number;
   editor: Editor | undefined;
   selected: Component | null;
+  forceExpandedIds: Set<string>;
+  clearForceExpand: (id: string) => void;
 }
 
-function LayerRow({ component, depth, editor, selected }: LayerRowProps) {
+function LayerRow({
+  component,
+  depth,
+  editor,
+  selected,
+  forceExpandedIds,
+  clearForceExpand,
+}: LayerRowProps) {
   // `tick` (the value, not the setter) is the dep that re-derives `children`
   // when GrapesJS mutates the components collection in place.
   const [tick, force] = useState(0);
@@ -182,7 +218,34 @@ function LayerRow({ component, depth, editor, selected }: LayerRowProps) {
     [component, tick],
   );
 
-  const [expanded, setExpanded] = useState(true);
+  // Default-collapsed beyond depth 3 to keep the layer tree responsive
+  // on captured pages. A captured Python docs page has ~1700 deeply
+  // nested elements; defaulting every LayerRow to expanded:true makes
+  // the whole tree render thousands of React components on every
+  // selection change (`selected` prop propagates down through every
+  // row), which causes a visible 0.5-1s lag when clicking a layer.
+  // Authored pages typically have <100 elements and barely notice —
+  // depth 3 covers the top of most real component trees. Users
+  // explicitly expand deeper subtrees to navigate.
+  //
+  // `forceExpandedIds` is an additive overlay: when canvas selection
+  // lands on a deep descendant, the panel adds every ancestor id to
+  // the set so the row mounts and the highlight + scrollIntoView can
+  // land on it. Effective expansion is `forced || localExpanded`. When
+  // the user explicitly collapses a force-opened ancestor via the
+  // chevron, we drop the id from the overlay so the collapse actually
+  // takes effect — re-selecting a descendant will add it back.
+  const [localExpanded, setLocalExpanded] = useState(depth < 3);
+  const forced = forceExpandedIds.has(component.getId());
+  const expanded = forced || localExpanded;
+  const toggleExpanded = () => {
+    if (expanded) {
+      if (forced) clearForceExpand(component.getId());
+      setLocalExpanded(false);
+    } else {
+      setLocalExpanded(true);
+    }
+  };
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
 
@@ -230,7 +293,7 @@ function LayerRow({ component, depth, editor, selected }: LayerRowProps) {
         {hasChildren ? (
           <button
             type="button"
-            onClick={() => setExpanded((v) => !v)}
+            onClick={toggleExpanded}
             className="flex items-center justify-center h-4 w-4 text-muted-foreground hover:text-foreground"
             aria-label={expanded ? "Collapse" : "Expand"}
           >
@@ -325,6 +388,8 @@ function LayerRow({ component, depth, editor, selected }: LayerRowProps) {
             depth={depth + 1}
             editor={editor}
             selected={selected}
+            forceExpandedIds={forceExpandedIds}
+            clearForceExpand={clearForceExpand}
           />
         ))}
     </div>
@@ -337,6 +402,8 @@ interface FrameLayerRowProps {
   frame: Frame;
   editor: Editor | undefined;
   selected: Component | null;
+  forceExpandedIds: Set<string>;
+  clearForceExpand: (id: string) => void;
 }
 
 /**
@@ -346,7 +413,13 @@ interface FrameLayerRowProps {
  * Component, double-click renames the frame, and the wrapper's children
  * recurse below using the existing LayerRow.
  */
-function FrameLayerRow({ frame, editor, selected }: FrameLayerRowProps) {
+function FrameLayerRow({
+  frame,
+  editor,
+  selected,
+  forceExpandedIds,
+  clearForceExpand,
+}: FrameLayerRowProps) {
   // `tick` (the value, not the setter) is the dep that re-derives the
   // wrapper's children list when GrapesJS mutates it in place.
   const [tick, force] = useState(0);
@@ -520,6 +593,8 @@ function FrameLayerRow({ frame, editor, selected }: FrameLayerRowProps) {
             depth={1}
             editor={editor}
             selected={selected}
+            forceExpandedIds={forceExpandedIds}
+            clearForceExpand={clearForceExpand}
           />
         ))}
     </div>
@@ -548,15 +623,70 @@ export function LayersPanel() {
     };
   }, [editor]);
 
+  const [forceExpandedIds, setForceExpandedIds] = useState<Set<string>>(new Set());
+  const [revealTarget, setRevealTarget] = useState<string | null>(null);
+  const clearForceExpand = useCallback((id: string) => {
+    setForceExpandedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (!editor) return;
-    const update = () => setSelected(editor.getSelected() ?? null);
-    update();
-    editor.on("component:selected component:deselected", update);
-    return () => {
-      editor.off("component:selected component:deselected", update);
+    const update = () => {
+      // Single primary selection only — matches Figma's reveal behaviour;
+      // multi-select reveal would fight itself when targets live in different
+      // branches of the tree.
+      const sel = editor.getSelected() ?? null;
+      setSelected(sel);
+      if (!sel) return;
+      const ancestors = collectAncestorIds(sel, frames);
+      setForceExpandedIds((prev) => {
+        if (ancestors.every((id) => prev.has(id))) return prev;
+        const next = new Set(prev);
+        ancestors.forEach((id) => next.add(id));
+        return next;
+      });
+      // If the selected component IS a frame's wrapper, the row to scroll
+      // to is the FrameLayerRow (keyed by frameId), not a LayerRow.
+      const wrapperFrame = frames.find((f) => frameWrapper(f)?.getId() === sel.getId());
+      setRevealTarget(
+        wrapperFrame
+          ? `oc-frame-row-${frameId(wrapperFrame)}`
+          : `oc-layer-row-${sel.getId()}`,
+      );
     };
-  }, [editor]);
+    update();
+    // Backbone's space-separated event syntax isn't reliably supported on the
+    // editor bus — the FrameLayerRow effect already documents this. Subscribe
+    // individually to each event so the panel actually reacts to canvas clicks.
+    editor.on("component:selected", update);
+    editor.on("component:deselected", update);
+    return () => {
+      editor.off("component:selected", update);
+      editor.off("component:deselected", update);
+    };
+  }, [editor, frames]);
+
+  useEffect(() => {
+    if (!revealTarget) return;
+    // Two rAFs: first lets the forceExpandedIds state flush and the ancestor
+    // rows mount; second lets layout settle before measuring scroll position.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-testid="${revealTarget}"]`);
+        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [revealTarget, forceExpandedIds]);
 
   // Delete / Backspace deletes the selected layer or frame. Ignored when the
   // keystroke is targeting a text input (rename input, inspector fields, etc).
@@ -637,6 +767,8 @@ export function LayersPanel() {
                   frame={frame}
                   editor={editor ?? undefined}
                   selected={selected}
+                  forceExpandedIds={forceExpandedIds}
+                  clearForceExpand={clearForceExpand}
                 />
               ))}
             </div>

@@ -129,13 +129,75 @@ export function AppearanceSection({ component }: { component: Component }) {
     </DropdownMenu>
   );
 
+  // Backplate row only renders when the selection is the ADR-0012 §1
+  // hybrid screenshot backplate (img or its wrapper). Hidden for every
+  // other selection so we don't clutter the panel with a control that
+  // does nothing.
+  const attrs =
+    (component as unknown as { getAttributes?: () => Record<string, unknown> }).getAttributes?.() ??
+    {};
+  const isBackplate =
+    "data-designjs-backplate" in attrs || "data-designjs-backplate-wrapper" in attrs;
+
   return (
     <InspectorSection title="Appearance" action={blendPicker}>
       <OpacityRadiusRow component={component} />
       {hasBlend ? <BlendRow component={component} /> : null}
       <CursorRow component={component} />
       <ZIndexRow component={component} />
+      {isBackplate ? (
+        <BackplateRow
+          component={component}
+          isImg={"data-designjs-backplate" in attrs}
+        />
+      ) : null}
     </InspectorSection>
+  );
+}
+
+/**
+ * Dedicated affordance for the ADR-0012 §1 hybrid screenshot backplate.
+ * The generic Appearance opacity control above already writes
+ * `opacity` on whatever's selected — but a labelled "Source screenshot
+ * backplate" subsection makes the intent legible: drag from 0 (edit
+ * mode) to 100 (pure pixel reference). Only renders when the selected
+ * component is the backplate img or wrapper.
+ *
+ * The img's class CSS gives a 15% default; clearing the inline opacity
+ * (slider at 15) reverts to the class-CSS value. The wrapper has no
+ * default opacity — clearing reverts to 100%.
+ */
+function BackplateRow({
+  component,
+  isImg,
+}: {
+  component: Component;
+  isImg: boolean;
+}) {
+  const defaultPct = isImg ? 15 : 100;
+  const rawOpacity = readStyle(component, "opacity");
+  const opacity =
+    rawOpacity === ""
+      ? defaultPct
+      : Math.round(Math.max(0, Math.min(1, parseFloat(rawOpacity))) * 100);
+
+  return (
+    <FieldGroup label="Source screenshot backplate">
+      <NumberInput
+        value={opacity}
+        onChange={(n) => {
+          const v = Math.max(0, Math.min(100, Math.round(n)));
+          if (v === defaultPct) clearStyle(component, "opacity");
+          else writeStyle(component, "opacity", String(v / 100));
+        }}
+        min={0}
+        max={100}
+        step={1}
+        unit="%"
+        label="Opacity"
+        data-testid="oc-ins-backplate-opacity"
+      />
+    </FieldGroup>
   );
 }
 

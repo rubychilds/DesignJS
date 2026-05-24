@@ -3,6 +3,7 @@ import { toPng, toJpeg } from "html-to-image";
 import {
   AddClassesInput,
   AddComponentsInput,
+  AddCssRulesInput,
   type ComponentNodeT,
   CreateArtboardInput,
   DeleteNodesInput,
@@ -29,6 +30,7 @@ import {
   fitArtboardToContent,
   listArtboards,
 } from "../canvas/artboards.js";
+import { chunkCss } from "../canvas/css-chunk.js";
 import { htmlToJsx, mergeStylesIntoHtml } from "../canvas/jsx-export.js";
 import { getVariables, setVariables } from "../canvas/variables.js";
 
@@ -73,19 +75,34 @@ function classNamesOf(component: Component): string[] {
 }
 
 function findById(editor: Editor, id: string): Component | undefined {
-  const wrapper = editor.getWrapper();
-  if (!wrapper) return undefined;
-  if (wrapper.getId() === id) return wrapper;
-  const stack: Component[] = [wrapper];
-  while (stack.length > 0) {
-    const c = stack.pop()!;
-    const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-    for (const child of childArray) {
-      if (child.getId() === id) return child;
-      stack.push(child);
+  // Walk every frame's wrapper, plus editor.getWrapper() as a fallback.
+  // Under v0.1's multi-frame layout, `add_components` with an `artboardId`
+  // lands content in `frame.get("component")` for that specific frame —
+  // which may not be the wrapper editor.getWrapper() returns. Searching
+  // only the latter produced "component not found" for IDs we'd just
+  // handed out (see story-mcp-autosave update_styles regression).
+  const search = (root: Component | undefined): Component | undefined => {
+    if (!root) return undefined;
+    if (root.getId() === id) return root;
+    const stack: Component[] = [root];
+    while (stack.length > 0) {
+      const c = stack.pop()!;
+      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
+      for (const child of childArray) {
+        if (child.getId() === id) return child;
+        stack.push(child);
+      }
     }
+    return undefined;
+  };
+  for (const frame of editor.Canvas.getFrames()) {
+    const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
+      | Component
+      | undefined;
+    const hit = search(wrapper);
+    if (hit) return hit;
   }
-  return undefined;
+  return search(editor.getWrapper() ?? undefined);
 }
 
 /**
@@ -147,6 +164,7 @@ function frameIframe(frame: Frame): HTMLIFrameElement | undefined {
  */
 const WRITE_TOOLS = new Set([
   "add_components",
+  "add_css_rules",
   "update_styles",
   "delete_nodes",
   "set_variables",
@@ -283,6 +301,25 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       return { componentIds: list.filter(Boolean).map((c) => (c as Component).getId()) };
     },
 
+    add_css_rules: (params) => {
+      const input = AddCssRulesInput.parse(params);
+      // Chunk the cssText at rule boundaries before sending to addRules.
+      // GrapesJS' CSS parser returns 0 rules for the whole batch when it
+      // hits a rule it can't handle — verified at 549KB of Wikipedia author
+      // CSS (head 5KB parsed 43 rules; full string parsed 0). Chunking
+      // bounds the blast radius of any single failing rule to its chunk.
+      const chunks = chunkCss(input.cssText);
+      let ruleCount = 0;
+      for (const chunk of chunks) {
+        const rules = editor.Css.addRules(chunk);
+        if (Array.isArray(rules)) ruleCount += rules.length;
+      }
+      console.log(
+        `[designjs:bridge] add_css_rules: ${(input.cssText.length / 1024).toFixed(1)}KB → ${chunks.length} chunk(s) → ${ruleCount} rule(s) parsed`,
+      );
+      return { ruleCount };
+    },
+
     update_styles: (params) => {
       const input = UpdateStylesInput.parse(params);
       const c = findById(editor, input.componentId);
@@ -364,7 +401,12 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       // workflow: create_artboard → add_components → fit_artboard). Retry
       // briefly so the wrapper + body become measurable. setTimeout (not
       // rAF) because rAF can be throttled in background/detached states.
-      const deadline = Date.now() + 1500;
+      // Bumped 1500ms → 3000ms once Google Fonts started landing (epic-8-
+      // followups §3.3, §3.1) — `@font-face` loading delays text layout,
+      // and large captures + screenshot backplate (ADR-0012 §1) settle
+      // slower than the prior budget allowed.
+      const FIT_TIMEOUT_MS = 3000;
+      const deadline = Date.now() + FIT_TIMEOUT_MS;
       let height: number | null = null;
       while (Date.now() < deadline) {
         height = fitArtboardToContent(editor, input.artboardId);
@@ -373,7 +415,7 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       }
       if (height == null) {
         throw new Error(
-          `cannot fit artboard: ${input.artboardId} (wrapper/content not measurable within 1500ms)`,
+          `cannot fit artboard: ${input.artboardId} (wrapper/content not measurable within ${FIT_TIMEOUT_MS}ms)`,
         );
       }
       const artboard = listArtboards(editor).find((a) => a.id === input.artboardId);

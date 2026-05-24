@@ -8,8 +8,7 @@
  * - Relays capture payloads from the content script → canvas.
  * - On extension-icon click, asks the active tab's content script to
  *   toggle the injected overlay. No browser-action popup is used —
- *   see ADR-0011 §UX and packages/chrome-ext-orbis for the reference
- *   pattern.
+ *   see ADR-0011 §UX for the rationale.
  *
  * Kept deliberately thin — the heavy lifting (DOM walk, style
  * serializer, overlay rendering) lives in the content script.
@@ -50,23 +49,144 @@ chrome.action.onClicked.addListener((tab) => {
  * Element capture keeps its simpler single-call path: it appends into
  * the first existing frame, and sizing is the user's concern.
  */
-async function relayCapture(msg: {
-  html: string;
-  newArtboard?: { name?: string; width: number; height: number };
-}): Promise<unknown> {
+/**
+ * Hybrid backplate styling — ADR-0012 §1. Wrapper sits at z-index:-1
+ * below the in-flow HTML tree (negative z-index keeps it behind without
+ * requiring the HTML tree to declare a stacking context). Inline styles
+ * are stripped by GrapesJS' parseHtml on most components, so we hoist
+ * the rules into a `<style>` block and target via class — same load-
+ * bearing pattern as the structural serializer (commit 959331d).
+ */
+const BACKPLATE_STYLE_BLOCK =
+  '<style data-designjs-backplate-css="">' +
+  ".designjs-backplate-wrapper{position:absolute;inset:0;z-index:-1;pointer-events:none;}" +
+  ".designjs-backplate-img{display:block;width:100%;height:100%;opacity:0.15;}" +
+  "</style>";
+
+function buildBackplateHtml(dataUrl: string): string {
+  return (
+    BACKPLATE_STYLE_BLOCK +
+    `<div class="designjs-backplate-wrapper" data-designjs-backplate-wrapper="">` +
+    `<img class="designjs-backplate-img" data-designjs-backplate="" src="${dataUrl}">` +
+    `</div>`
+  );
+}
+
+type RenderingSub =
+  | "creating-artboard"
+  | "adding-backplate"
+  | "adding-components"
+  | "fitting";
+
+function postRenderingPhase(
+  tabId: number | undefined,
+  sub: RenderingSub,
+  nodeCount?: number,
+  byteCount?: number,
+): void {
+  if (tabId == null) return;
+  // Fire-and-forget; if the tab closed mid-capture, ignore the rejection.
+  chrome.tabs
+    .sendMessage(tabId, {
+      type: "designjs:capture:progress",
+      phase: "rendering",
+      sub,
+      nodeCount,
+      byteCount,
+    })
+    .catch(() => {});
+}
+
+async function relayCapture(
+  msg: {
+    html: string;
+    /** Captured CSS (author + dedup + computed) extracted out of the import
+     * HTML by the content script. Sent via add_css_rules before
+     * add_components so element class references resolve. */
+    cssText?: string;
+    newArtboard?: { name?: string; width: number; height: number };
+    /** Optional full-page screenshot data URL — ADR-0012 §1 hybrid backplate. */
+    screenshotDataUrl?: string;
+    nodeCount?: number;
+    byteCount?: number;
+  },
+  tabId: number | undefined,
+): Promise<unknown> {
   if (msg.newArtboard) {
+    postRenderingPhase(tabId, "creating-artboard", msg.nodeCount, msg.byteCount);
     const { artboard } = (await bridge.send({
       tool: "create_artboard",
       params: msg.newArtboard,
     })) as { artboard: { id: string } };
+
+    // CSS rules first — they need to be registered before add_components
+    // so the captured elements' class references resolve. Routes the
+    // author / dedup / computed style blocks through GrapesJS' CSS Manager,
+    // bypassing parseHtml's silent <style>-stripping. Best-effort: if the
+    // CSS step fails the structural capture still lands (matches the
+    // backplate's resilience).
+    if (msg.cssText && msg.cssText.length > 0) {
+      console.log(
+        `[designjs] dispatching add_css_rules: ${(msg.cssText.length / 1024).toFixed(1)}KB`,
+      );
+      try {
+        const cssResult = await bridge.send({
+          tool: "add_css_rules",
+          params: { cssText: msg.cssText, artboardId: artboard.id },
+          timeoutMs: 60_000,
+        });
+        console.log(`[designjs] add_css_rules ok:`, cssResult);
+      } catch (err) {
+        console.error(
+          `[designjs] add_css_rules FAILED — captured-page styles won't land. ` +
+            `Likely causes: canvas missing the handler (restart pnpm dev) or ` +
+            `editor.Css.addRules threw. Error:`,
+          err,
+        );
+      }
+    } else {
+      console.warn("[designjs] no cssText in capture:send — extension content script didn't extract style blocks");
+    }
+
+    // Backplate goes in next so it sits *behind* the HTML tree in
+    // document order. The actual stacking is handled by z-index:-1 on
+    // the wrapper; document order matters because the artboard's
+    // wrapper isn't itself a stacking context.
+    if (msg.screenshotDataUrl) {
+      postRenderingPhase(tabId, "adding-backplate", msg.nodeCount, msg.byteCount);
+      try {
+        await bridge.send({
+          tool: "add_components",
+          params: {
+            html: buildBackplateHtml(msg.screenshotDataUrl),
+            artboardId: artboard.id,
+          },
+        });
+      } catch (err) {
+        // Backplate is best-effort — if it fails the structural capture
+        // still lands. No silent corruption either way.
+        console.warn("[designjs] backplate insertion failed:", err);
+      }
+    }
+
+    postRenderingPhase(tabId, "adding-components", msg.nodeCount, msg.byteCount);
     const addResult = await bridge.send({
       tool: "add_components",
       params: { html: msg.html, artboardId: artboard.id },
+      // 180s — even after dedup + add_css_rules chunking, GrapesJS' parse +
+      // model tree build on Wikipedia-class articles (~7k components +
+      // ~2.4k CSS rules) was tripping the prior 90s cap. Bumped to 180s
+      // to absorb worst-case Wikipedia/MDN parse times; canvas tab stays
+      // unresponsive during this window so a longer wait is acceptable
+      // over a false-fail that wastes the whole capture. Until Q2 (chunked
+      // add_components) lands, this is the lever.
+      timeoutMs: 180_000,
     });
     // fit_artboard measures the iframe content and resizes the frame
     // accordingly. Best-effort — if it fails (iframe slow to mount,
     // content not measurable) we still return the add_components result
     // so the capture isn't lost.
+    postRenderingPhase(tabId, "fitting", msg.nodeCount, msg.byteCount);
     try {
       await bridge.send({
         tool: "fit_artboard",
@@ -77,14 +197,36 @@ async function relayCapture(msg: {
     }
     return addResult;
   }
+  postRenderingPhase(tabId, "adding-components", msg.nodeCount, msg.byteCount);
   return bridge.send({ tool: "add_components", params: { html: msg.html } });
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "capture:send") {
-    relayCapture(msg)
+    relayCapture(msg, sender.tab?.id)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((err: Error) => sendResponse({ ok: false, error: err.message }));
+    return true; // async response
+  }
+  if (msg?.type === "capture:visible-tab") {
+    // chrome.tabs.captureVisibleTab can only run from the background
+    // context. Capture the originating tab's window so multi-window
+    // setups don't capture the wrong viewport.
+    const windowId = sender.tab?.windowId;
+    chrome.tabs.captureVisibleTab(
+      windowId ?? chrome.windows.WINDOW_ID_CURRENT,
+      { format: "png" },
+      (dataUrl?: string) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({
+            ok: false,
+            error: chrome.runtime.lastError.message ?? "captureVisibleTab failed",
+          });
+          return;
+        }
+        sendResponse({ ok: true, dataUrl });
+      },
+    );
     return true; // async response
   }
   if (msg?.type === "bridge-status:request") {

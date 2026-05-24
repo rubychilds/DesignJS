@@ -185,7 +185,10 @@ export function ArtboardTitleBars() {
     const rawY = state.startWorldY + dyWorld;
     if (!editor) return;
     const snapped = findSnapOffset(editor, state.id, rawX, rawY);
-    moveArtboard(editor, state.id, snapped.x, snapped.y, false);
+    // noUndo: true so a 100px drag doesn't fill the undo stack with ~30
+    // per-tick entries. onPointerUp emits a single trackable commit so
+    // Cmd+Z reverses the whole drag in one step.
+    moveArtboard(editor, state.id, snapped.x, snapped.y, false, { noUndo: true });
     // Stash the screen-space location of each snapped edge so the guide
     // overlay can render it. Snap edges always coincide with a frame edge
     // on screen; derive from the world-space snap target + the frame's own
@@ -203,6 +206,58 @@ export function ArtboardTitleBars() {
       (ev.currentTarget as HTMLElement).releasePointerCapture?.(ev.pointerId);
     } catch {
       // ignore
+    }
+    // Coalesce the drag into a single undo entry by pushing a synthetic
+    // entry directly to backbone-undo's stack. Skip when the frame didn't
+    // actually move (a click-without-drag).
+    //
+    // Why synthetic-push instead of rewind-and-commit: Backbone's
+    // `previousAttributes()` accounting across many event-loop ticks
+    // (each pointermove is its own micro-task) makes the rewind-and-commit
+    // pattern unreliable in the React-driven path — by commit time
+    // backbone-undo's "on change" handler captures a previousAttributes
+    // that's already been overwritten by the noUndo-but-still-event-firing
+    // pointermoves. A synthetic entry with explicit before/after sidesteps
+    // the issue: `undo()` calls `model.set(before)` directly and frame
+    // returns to its drag-start position in one Cmd+Z.
+    if (editor) {
+      const frames = editor.Canvas.getFrames();
+      const frame = (frames as unknown as Array<{
+        cid?: string;
+        id?: string;
+        get?: (k: string) => unknown;
+      }>).find((f) => String(f.cid ?? f.id ?? "") === state.id);
+      const finalX = Number(frame?.get?.("x") ?? state.startWorldX);
+      const finalY = Number(frame?.get?.("y") ?? state.startWorldY);
+      const moved = finalX !== state.startWorldX || finalY !== state.startWorldY;
+      if (moved && frame) {
+        const um = (
+          editor as unknown as {
+            UndoManager?: {
+              um?: {
+                stack?: {
+                  add: (e: unknown) => void;
+                  length: number;
+                  pointer: number;
+                };
+                undoTypes?: unknown;
+              };
+            };
+          }
+        ).UndoManager?.um;
+        if (um?.stack && um.undoTypes) {
+          um.stack.add({
+            type: "change",
+            object: frame,
+            before: { x: state.startWorldX, y: state.startWorldY },
+            after: { x: finalX, y: finalY },
+            options: {},
+            magicFusionIndex: -1,
+            undoTypes: um.undoTypes,
+          });
+          um.stack.pointer = um.stack.length - 1;
+        }
+      }
     }
     dragRef.current = null;
     setDrag(null);

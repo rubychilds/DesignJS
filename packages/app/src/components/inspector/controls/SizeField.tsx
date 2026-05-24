@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover.js";
 
 export type SizeMode = "fixed" | "hug" | "fill";
 
@@ -18,6 +19,17 @@ export interface SizeFieldProps {
   onFixedChange: (next: number) => void;
   /** Available modes based on context (parent layout). Default: all three. */
   availableModes?: SizeMode[];
+  /**
+   * Min/Max clamps. Independent of mode: a Fill axis can still carry a
+   * `max-width: 600px` cap; a Fixed axis can still carry a `min-width: 200px`
+   * floor. Raw CSS values (e.g. `"200px"`) — the field surfaces only the
+   * leading numeric. When undefined (no handler), the overflow trigger
+   * does not render.
+   */
+  minValue?: string;
+  maxValue?: string;
+  onMinChange?: (next: number | null) => void;
+  onMaxChange?: (next: number | null) => void;
   "data-testid"?: string;
   className?: string;
 }
@@ -27,6 +39,14 @@ const MODE_LABEL: Record<SizeMode, string> = {
   hug: "Hug",
   fill: "Fill",
 };
+
+function leadingNumber(s: string | undefined): number | null {
+  if (!s) return null;
+  const m = /^(-?\d*\.?\d+)/.exec(s.trim());
+  if (!m) return null;
+  const n = parseFloat(m[1]!);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * Penpot/Figma-style sizing chip: axis label + mode pill (Fixed / Hug / Fill)
@@ -51,6 +71,10 @@ export function SizeField({
   onModeChange,
   onFixedChange,
   availableModes = ["fixed", "hug", "fill"],
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
   "data-testid": testId,
   className,
 }: SizeFieldProps) {
@@ -147,7 +171,7 @@ export function SizeField({
             )}
             data-testid={testId}
           />
-          <span className="pr-2 text-[11px] text-muted-foreground select-none">px</span>
+          <span className="pr-1 text-[11px] text-muted-foreground select-none">px</span>
         </>
       ) : (
         <span
@@ -157,6 +181,140 @@ export function SizeField({
           {label}
         </span>
       )}
+      {onMinChange || onMaxChange ? (
+        <ClampOverflow
+          axis={axis}
+          minValue={minValue}
+          maxValue={maxValue}
+          onMinChange={onMinChange}
+          onMaxChange={onMaxChange}
+        />
+      ) : null}
     </div>
+  );
+}
+
+interface ClampOverflowProps {
+  axis: "W" | "H";
+  minValue?: string;
+  maxValue?: string;
+  onMinChange?: (next: number | null) => void;
+  onMaxChange?: (next: number | null) => void;
+}
+
+function ClampOverflow({
+  axis,
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+}: ClampOverflowProps) {
+  const minNum = leadingNumber(minValue);
+  const maxNum = leadingNumber(maxValue);
+  const hasClamp = minNum != null || maxNum != null;
+  const axisKey = axis === "W" ? "w" : "h";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex items-center justify-center w-5 h-5 mr-0.5 rounded-sm",
+            "text-[12px] leading-none select-none",
+            "hover:bg-background hover:text-foreground",
+            "focus:outline-none focus-visible:ring-1 focus-visible:ring-oc-accent",
+            hasClamp ? "text-foreground" : "text-muted-foreground",
+          )}
+          aria-label={`${axis} min/max clamps`}
+          data-testid={`oc-ins-${axisKey}-clamp-trigger`}
+        >
+          <span aria-hidden>⋯</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-56">
+        <div className="flex flex-col gap-1.5">
+          {onMinChange ? (
+            <ClampRow
+              label="Min"
+              value={minNum}
+              onChange={onMinChange}
+              testid={`oc-ins-min-${axisKey}`}
+            />
+          ) : null}
+          {onMaxChange ? (
+            <ClampRow
+              label="Max"
+              value={maxNum}
+              onChange={onMaxChange}
+              testid={`oc-ins-max-${axisKey}`}
+            />
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+interface ClampRowProps {
+  label: string;
+  value: number | null;
+  onChange: (next: number | null) => void;
+  testid: string;
+}
+
+function ClampRow({ label, value, onChange, testid }: ClampRowProps) {
+  const [draft, setDraft] = React.useState(value == null ? "" : String(value));
+
+  React.useEffect(() => {
+    setDraft(value == null ? "" : String(value));
+  }, [value]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed === "") {
+      onChange(null);
+      return;
+    }
+    const parsed = parseFloat(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setDraft(value == null ? "" : String(value));
+      return;
+    }
+    onChange(parsed);
+  };
+
+  return (
+    <label className="flex items-center gap-2 h-7 px-1 text-[11px] text-muted-foreground">
+      <span className="w-7 select-none">{label}</span>
+      <div
+        className={cn(
+          "flex flex-1 items-center h-7 min-w-0 rounded-md bg-chip",
+          "focus-within:ring-1 focus-within:ring-oc-accent",
+        )}
+      >
+        <input
+          type="text"
+          inputMode="decimal"
+          placeholder="—"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          className={cn(
+            "flex-1 min-w-0 bg-transparent px-2 h-full text-xs tabular-nums text-foreground",
+            "focus:outline-none placeholder:text-muted-foreground/60",
+          )}
+          data-testid={testid}
+        />
+        <span className="pr-2 text-[11px] text-muted-foreground select-none">px</span>
+      </div>
+    </label>
   );
 }

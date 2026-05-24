@@ -1,19 +1,34 @@
 import type { Editor } from "grapesjs";
+import {
+  cssVariableToPath,
+  deleteToken,
+  flattenToCssVariables,
+  getTokenTree,
+  inferType,
+  inflateFromCssVariables,
+  loadTokenTree,
+  resetTokenStore,
+  setToken,
+  type Token,
+  type TokenTree,
+} from "./tokens.js";
 
 /**
- * Module-scoped store of CSS custom properties currently applied to the canvas
- * iframe `:root`. The MCP get_variables/set_variables handlers read and write
- * this store; persistence reads it via getVariables() to merge into the saved
- * .designjs.json blob, and loadVariables() rehydrates it on page load.
+ * Legacy flat-map adapter over the DTCG tokens store
+ * (`packages/app/src/canvas/tokens.ts`). Existing consumers — the
+ * VariablesPopover, MCP `get_variables` / `set_variables` handlers,
+ * the persistence `getExtras()` channel — read and write a
+ * `Record<string, string>` keyed on `--var-name`. ADR-0009 Phase 1
+ * keeps that API stable while the storage shape underneath becomes
+ * DTCG-shaped. Phase 2 (§6) and Phase 3 (§9) replace these surfaces;
+ * this file goes away with them.
  *
- * Keys are full custom-property names including the leading `--` (e.g.
- * "--brand-primary"). Values are CSS strings.
- *
- * Writes iterate every artboard frame's iframe :root via editor.Canvas
- * .getFrames() — Canvas.getDocument() alone returns undefined under the
- * multi-frame layout shipped in v0.1 and silently drops the write.
+ * Writes apply to every artboard frame's iframe `:root` via the same
+ * mechanism as before (Canvas.getDocument() alone returns undefined
+ * under the multi-frame layout). CSS emission via Tailwind v4 `@theme`
+ * (ADR §5) is Chunk C work — for Phase 1 Chunk A we keep the
+ * setProperty-per-variable path so behaviour is unchanged.
  */
-const store = new Map<string, string>();
 
 function frameDocs(editor: Editor): Document[] {
   const docs: Document[] = [];
@@ -24,8 +39,6 @@ function frameDocs(editor: Editor): Document[] {
     const doc = view?.getWindow?.()?.document;
     if (doc) docs.push(doc);
   }
-  // Fallback to the single-frame API in case getFrames() is empty (the initial
-  // boot path, or a test harness that never mounts an artboard).
   if (docs.length === 0) {
     const doc = editor.Canvas.getDocument();
     if (doc) docs.push(doc);
@@ -34,37 +47,58 @@ function frameDocs(editor: Editor): Document[] {
 }
 
 export function getVariables(): Record<string, string> {
-  return Object.fromEntries(store.entries());
+  return flattenToCssVariables(getTokenTree());
 }
 
 /**
- * Merges the supplied variables into the in-memory store and writes them to
- * the iframe :root. Existing keys not in `incoming` are preserved.
+ * Merges the supplied variables into the DTCG store and writes them to
+ * each iframe `:root`. Existing keys not in `incoming` are preserved.
  * Returns the full updated map.
  */
 export function setVariables(
   editor: Editor,
   incoming: Record<string, string>,
 ): Record<string, string> {
-  for (const [k, v] of Object.entries(incoming)) {
-    store.set(k, v);
+  const tree = getTokenTree();
+  for (const [cssVar, value] of Object.entries(incoming)) {
+    const path = cssVariableToPath(cssVar);
+    const type = inferType(cssVar, value);
+    const token: Token = type ? { $type: type, $value: value } : { $value: value };
+    setToken(tree, path, token);
   }
   applyAll(editor);
   return getVariables();
 }
 
 /**
- * Replaces the in-memory store with `vars` and applies them to the iframe.
- * Used on page load to rehydrate from .designjs.json. If the iframe document
- * isn't ready yet, polls briefly until it is so the variables actually land.
+ * Replaces the in-memory store with `vars` and applies them to the
+ * iframe. Used on page load to rehydrate from `.designjs.json`'s
+ * legacy `cssVariables` shape — the new `tokens` shape has its own
+ * loader (`loadTokenTree`) and bypasses this function.
+ *
+ * Polls briefly if the iframe doc isn't ready yet so the variables
+ * actually land.
  */
 export function loadVariables(editor: Editor, vars: Record<string, string>): void {
-  store.clear();
-  for (const [k, v] of Object.entries(vars)) {
-    store.set(k, v);
-  }
+  loadTokenTree(inflateFromCssVariables(vars));
+  applyWithRetry(editor);
+}
+
+/**
+ * Load a DTCG TokenTree directly (no flat-map round-trip). Preserves
+ * `$type` annotations from the saved tree — used by the App.tsx
+ * persistence path when `.designjs.json` already carries the new
+ * `tokens` shape (i.e. saved by a post-Phase-1 build). The legacy
+ * `cssVariables` path inflates via `loadVariables` instead, paying the
+ * type-inference cost once at migration time.
+ */
+export function loadTokens(editor: Editor, tree: TokenTree): void {
+  loadTokenTree(tree);
+  applyWithRetry(editor);
+}
+
+function applyWithRetry(editor: Editor): void {
   if (applyAll(editor)) return;
-  // Iframe doc not ready — retry for up to ~5s.
   let tries = 0;
   const interval = window.setInterval(() => {
     tries += 1;
@@ -74,35 +108,30 @@ export function loadVariables(editor: Editor, vars: Record<string, string>): voi
   }, 100);
 }
 
-/**
- * Remove a single variable from the in-memory store and the iframe :root.
- * Returns the updated map.
- */
-export function deleteVariable(editor: Editor, key: string): Record<string, string> {
-  store.delete(key);
+export function deleteVariable(
+  editor: Editor,
+  key: string,
+): Record<string, string> {
+  deleteToken(getTokenTree(), cssVariableToPath(key));
   for (const doc of frameDocs(editor)) {
     doc.documentElement?.style.removeProperty(key);
   }
   return getVariables();
 }
 
-/**
- * Test/reset hook — clears the in-memory store. Does not touch the iframe.
- * Useful when the page reloads and the module-scoped Map would otherwise
- * survive a Vite HMR boundary in dev.
- */
 export function resetVariablesStore(): void {
-  store.clear();
+  resetTokenStore();
 }
 
 function applyAll(editor: Editor): boolean {
   const docs = frameDocs(editor);
   if (docs.length === 0) return false;
   let applied = false;
+  const flat = flattenToCssVariables(getTokenTree());
   for (const doc of docs) {
     const root = doc.documentElement;
     if (!root) continue;
-    for (const [k, v] of store) {
+    for (const [k, v] of Object.entries(flat)) {
       root.style.setProperty(k, v);
     }
     applied = true;

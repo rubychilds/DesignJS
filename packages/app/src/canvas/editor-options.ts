@@ -25,13 +25,42 @@ const TAILWIND_V4_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
  * wrapping-paragraph mode.
  */
 export const PRIMITIVE_BASE_CSS = `
+html {
+  /* Pin the canvas iframe to light color-scheme so author-CSS rules
+     inside @media (prefers-color-scheme: dark) blocks (common for
+     code-block syntax highlighting — e.g. Python docs ships both
+     light + dark Pygments stylesheets) don't fire and override the
+     captured light-theme values. Without this, the canvas iframe
+     inherits whatever the host browser prefers, which causes a
+     mismatch with what the user saw at capture time. */
+  color-scheme: light !important;
+}
 html, body {
   height: 100%;
-  margin: 0;
-  padding: 0;
+  /* !important on margin/padding/overflow wins the cascade against
+     captured author-CSS rules that target body/html selectors. E.g.
+     Python docs' stylesheets include 'body { margin: 0 18px }' which
+     pushed captured content off the artboard's top-left, and
+     'body { overflow: hidden }' which clipped wide content (long
+     headings, code blocks) at the body's right edge. body in the
+     canvas iframe is genuinely chrome — not the captured body — so
+     these aren't captured-content semantics being overridden.
+     The right long-term fix is selector-scoping in collectAuthorCss
+     (rewrite top-level body/html/:root to our [data-dj-source-*]
+     markers); this is the cheap and obviously-correct intermediate. */
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
 }
 body {
-  background: #ffffff;
+  /* !important for the same reason as margin/padding/overflow above:
+     captured author-CSS can include body-selector backgrounds (commonly
+     from @media (prefers-color-scheme: dark) blocks), which leak into
+     the canvas iframe's body — which is genuinely chrome, not captured
+     content. The captured root carries its own background-color via
+     its inline style, so this only paints the area around the captured
+     content (the "artboard background" the user sees). */
+  background: #ffffff !important;
 }
 [data-oc-shape="text"] {
   display: inline-block !important;
@@ -70,4 +99,16 @@ export const editorOptions: EditorConfig = {
     custom: true,
   },
   panels: { defaults: [] },
+  // Honour newline-only text nodes when parsing imported HTML. Without
+  // this GrapesJS strips text nodes whose content is purely whitespace
+  // (PR https://github.com/GrapesJS/grapesjs/pull/6571 in v0.22.12 made
+  // the option actually work — before that it was silently ignored).
+  // Load-bearing for captured `<pre>` code blocks whose newlines live
+  // in text nodes between syntax-highlighted `<span>` children — without
+  // this, code blocks render on a single mashed line.
+  parser: {
+    optionsHtml: {
+      keepEmptyTextNodes: true,
+    },
+  },
 };

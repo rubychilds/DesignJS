@@ -23,7 +23,7 @@ import { cn } from "../../lib/utils.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group.js";
 import { NumberInput } from "../ui/number-input.js";
-import { clearStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
+import { clearStyle, readEffectiveStyle, readStyle, writeStyle } from "../../canvas/component-style.js";
 import { FieldGroup, InspectorSection } from "./InspectorSection.js";
 import { SizeField, type SizeMode } from "./controls/SizeField.js";
 import { useInspectorContext } from "./useInspectorContext.js";
@@ -160,10 +160,34 @@ function WHRow({
   selfIsFlex: boolean;
   parentIsFlex: boolean;
 }) {
-  const width = readStyle(component, "width");
-  const height = readStyle(component, "height");
+  // readEffectiveStyle: surface the *rendered* width/height for captured
+  // elements (where styles route through GrapesJS' CSS Manager not the
+  // component model). For elements with no explicit dimension set this
+  // shows the layout-derived px value — e.g. a captured paragraph's
+  // actual width instead of blank. Other Layout properties (min/max,
+  // display, flex/grid) keep readStyle since their "unset" state is
+  // semantically meaningful and computed defaults would mislead.
+  const width = readEffectiveStyle(component, "width");
+  const height = readEffectiveStyle(component, "height");
   const widthNum = parsePx(width);
   const heightNum = parsePx(height);
+
+  // Min/Max clamps — independent of mode (a Fill axis can still carry a
+  // `max-width` cap; a Fixed axis a `min-width` floor). Empty string means
+  // unset; the SizeField overflow popover writes `null` to clear.
+  const minWidth = readStyle(component, "min-width");
+  const maxWidth = readStyle(component, "max-width");
+  const minHeight = readStyle(component, "min-height");
+  const maxHeight = readStyle(component, "max-height");
+
+  const setClamp = (prop: "min-width" | "max-width" | "min-height" | "max-height") =>
+    (next: number | null) => {
+      if (next == null) {
+        clearStyle(component, prop);
+      } else {
+        writeStyle(component, prop, `${next}px`);
+      }
+    };
 
   // Availability rules mirror Figma: Hug only when *this* element lays out
   // its own content (auto-layout container); Fill only when the *parent*
@@ -218,6 +242,10 @@ function WHRow({
         availableModes={widthModes}
         onModeChange={(m) => writeSize(component, "width", m, widthNum ?? 0)}
         onFixedChange={onWFixed}
+        minValue={minWidth}
+        maxValue={maxWidth}
+        onMinChange={setClamp("min-width")}
+        onMaxChange={setClamp("max-width")}
         data-testid="oc-ins-width"
       />
       <SizeField
@@ -227,6 +255,10 @@ function WHRow({
         availableModes={heightModes}
         onModeChange={(m) => writeSize(component, "height", m, heightNum ?? 0)}
         onFixedChange={onHFixed}
+        minValue={minHeight}
+        maxValue={maxHeight}
+        onMinChange={setClamp("min-height")}
+        onMaxChange={setClamp("max-height")}
         data-testid="oc-ins-height"
       />
       <Tooltip>

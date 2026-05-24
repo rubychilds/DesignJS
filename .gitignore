@@ -13,6 +13,7 @@ playwright-report/
 
 # project data files written at runtime
 .opencanvas.json
+.designjs.json
 
 # MCP config files are user-specific; they're written by `opencanvas init` on
 # whoever's machine. Don't commit them -- users pick the one they want.
@@ -32,11 +33,17 @@ playwright-report/
 *.log
 
 # Claude / local tooling caches
-.claude/cache/
+.claude/
 
 # Local research clones — external repos pulled in for reading, not vendored.
 # Keep their own .git intact and out of our tree.
 penpot/
 designjs-docs/
 onlook/
-packages/chrome-ext-orbis/
+design.md/
+flux/
+screenshot-capture/
+Blipshot/
+chrome-devtools-mcp/
+SingleFile/
+opencode/

@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck all packages
         run: pnpm -r typecheck
 
+      - name: Unit tests
+        run: pnpm -r --if-present test
+
       - name: Build all packages
         run: pnpm -r --filter '!@designjs/bridge' build
 

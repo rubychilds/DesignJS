@@ -1,6 +1,6 @@
 # ADR-0006: Sizing modes, auto-layout taxonomy, canvas model, and the Raw CSS exit path
 
-**Status:** Proposed
+**Status:** Accepted (2026-04-24)
 **Date:** April 19, 2026
 **Owner:** Architecture
 **Related:** [ADR-0001](./0001-frontend-ui-stack.md) (UI stack), [ADR-0002](./0002-inspector-information-architecture.md) (inspector IA), [ADR-0003](./0003-panel-information-architecture.md) (panel IA), [ADR-0005](./0005-html-primitives-mapping.md) (HTML primitives); PRD §5.1 (HTML/CSS-native canvas)
@@ -224,6 +224,68 @@ Raw CSS becomes a **conditional fallback**: it renders only when the selected co
 - Should Min-W / Max-W be a single overflow popover (Figma) or always-visible inputs under the W field (Penpot)? Figma's overflow is tidier; ship that.
 - When a user adds an auto-layout to a Group, do we preserve child positions as Fixed or flip them all to Hug? Figma preserves Fixed; probably right.
 - Does Raw CSS retirement happen as a single flip or gradually as Phase 2 properties ship? Probably gradual — "Other CSS" hides when residual is empty, which is already the conditional behaviour.
+
+---
+
+## Addendum (2026-04-24) — implementation status
+
+Shipped across four commits plus the Min/Max clamp follow-up on
+`adr-0006-sizing-canvas`:
+
+- `0d03444` — Phase 1 + Phase 2 in one go: `<SizeField>` (Fixed / Hug /
+  Fill) replaces the raw W/H inputs, padding row + per-side toggle,
+  margin row, cursor enum (Appearance), `position` mode enum, overflow
+  X/Y split, and the loose-canvas fix via `getPageRootWrapper(editor)`
+  in `packages/app/src/canvas/primitives.ts` — primitives inserted with
+  no Frame selected attach to the first frame's wrapper instead of the
+  active frame.
+- `593cb09` — Phase 3 grid auto-layout: 4-valued Direction (`free` /
+  `row` / `column` / `grid`), `GridRows` with track inputs
+  (`grid-template-columns` / `grid-template-rows`), gaps, per-child
+  `grid-column` / `grid-row`. Subgrid / areas / named lines remain out
+  of scope per the Decision (§2).
+- `c261e49` — Phase 4 Raw CSS conditional: `hasOrphanProperties()`
+  helper in `packages/app/src/components/inspector/orphan-properties.ts`
+  walks the selection's defined styles and filters out semantic-layer
+  owners; the section now renders only when residual is non-empty and
+  is titled **"Other CSS"** per the rename.
+- `4bf2ad8` — visual-density / lucide-only icons polish over the new
+  surfaces.
+- `e126aa4` — ADR §1 Min/Max clamps. SizeField gains `minValue` /
+  `maxValue` / `onMinChange` / `onMaxChange` props and a Figma-style
+  overflow popover (`⋯` trigger to the right of the px label)
+  exposing two clearable numeric rows. LayoutSection's W/H consumers
+  wire to `min-width` / `max-width` / `min-height` / `max-height`
+  longhands via `readStyle` / `writeStyle` / `clearStyle`. Empty
+  input clears; clamps are mode-independent — a Hug or Fill axis can
+  still carry a clamp (verified by spec). New thin wrapper
+  `packages/app/src/components/ui/popover.tsx` around the existing
+  `@radix-ui/react-popover` dep. E2E coverage:
+  `e2e/story-inspector-min-max-clamps.spec.ts` (2 specs, both green).
+
+Three notes worth recording:
+
+- **The orphan-property allowlist already claimed `min-width` / `max-width` /
+  `min-height` / `max-height`** before any UI rendered them. Pre-Min/Max
+  this was a real footgun: a clamp set by paste, MCP, or an agent would
+  persist but be invisible from the inspector, and the "Other CSS"
+  fallback wouldn't surface it either because the orphan detector said
+  "we own this." Shipping the popover closes that hole and keeps the
+  allowlist honest.
+- **The overflow-popover trigger renders only when at least one of the
+  Min/Max handlers is supplied.** Backward-compatible — consumers that
+  don't yet wire the clamps see no visual change.
+- **Open Question §1 (`isPageRoot` flag) — resolved 2026-04-24 in
+  `c96f3f7`.** The flag now lives on the page-root frame's wrapper
+  Component as the boolean attribute `data-designjs-page-root`,
+  exported as `PAGE_ROOT_ATTR` from `packages/app/src/canvas/
+  artboards.ts`. New `ensurePageRoot(editor)` is the single writer
+  (idempotent — stamps the first frame on init only when nothing else
+  carries it); wired into `App.tsx` `handleReady` after
+  `ensureDefaultArtboard`. `getPageRootWrapper` reads via the marker
+  with first-frame fallback for legacy projects whose saved data
+  predates the flag. E2E coverage in
+  `e2e/story-page-root-flag.spec.ts` (2 specs, both green).
 
 ---
 

@@ -1,4 +1,5 @@
 import type { Component } from "grapesjs";
+import { hasOnlyTextContent } from "../../canvas/primitives.js";
 
 /**
  * Applicability predicates used by the inspector to decide whether a given
@@ -8,8 +9,10 @@ import type { Component } from "grapesjs";
  * control when the surrounding section is still relevant but the specific
  * property produces no visible effect for this kind of element.
  *
- * Keep these predicates pure and tag-based — no DOM/style reads — so the
- * inspector stays cheap to re-render on every selection change.
+ * Predicates are tag-keyed for cheapness, but the text-object checks also
+ * verify the component actually contains text — otherwise <a> and <button>
+ * wrapping images (think the Wikipedia logo) get treated as text and the
+ * inspector hides auto-layout while showing typography that does nothing.
  */
 
 /**
@@ -59,12 +62,12 @@ function tagOf(component: Component): string {
 
 /** Is this an inline text run where box-model visuals typically do nothing? */
 export function isInlineTextObject(component: Component): boolean {
-  return INLINE_TEXT_TAGS.has(tagOf(component));
+  return INLINE_TEXT_TAGS.has(tagOf(component)) && hasOnlyTextContent(component);
 }
 
 /** Is this component a text-bearing tag (inline or block text container)? */
 export function isTextObject(component: Component): boolean {
-  return TEXT_TAGS.has(tagOf(component));
+  return TEXT_TAGS.has(tagOf(component)) && hasOnlyTextContent(component);
 }
 
 /**

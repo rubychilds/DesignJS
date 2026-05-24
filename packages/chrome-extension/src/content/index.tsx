@@ -23,6 +23,7 @@ import "../overlay/overlay.css";
 import { createWalker } from "../capture/dom-walker.js";
 import { captureFullPagePixels } from "../capture/screenshot-stitcher.js";
 import { collectFontLinks, serialize } from "../capture/style-serializer.js";
+import { extractStyleBlocks } from "../capture/extract-styles.js";
 
 const ROOT_ID = "designjs-capture-root";
 
@@ -308,30 +309,16 @@ async function capturePage(): Promise<void> {
   // tree. Swap the outer <html> AND the inner <body> for <div> so the
   // inlined styles still apply but the nesting is legal. Markers retain
   // the original tag identity for inspector / future tooling.
-  // Extract the author / dedup / captured-computed <style> blocks the
-  // serializer emits as siblings of the captured wrapper. Route these
-  // to the canvas via the add_css_rules bridge tool instead of leaving
-  // them in the import HTML — GrapesJS' parseHtml silently strips
-  // <style> elements during import (verified in canvas DevTools: 0 of
-  // 1,949 stylesheets contained any author or dedup rule when blocks
-  // were left in the HTML), so the editor.Css.addRules path via the
-  // new bridge tool is the only way these rules actually land.
-  const cssBlocks: string[] = [];
-  const STYLE_MARKERS = ["author", "dedup", "capture"] as const;
-  let htmlNoStyles = result.html;
-  for (const marker of STYLE_MARKERS) {
-    const re = new RegExp(
-      `<style data-designjs-${marker}="">([\\s\\S]*?)<\\/style>`,
-      "g",
-    );
-    htmlNoStyles = htmlNoStyles.replace(re, (_m, css: string) => {
-      if (css && css.length > 0) cssBlocks.push(css);
-      return "";
-    });
-  }
-  const extractedCss = cssBlocks.join("\n");
+  // Route the serializer-emitted <style data-designjs-*> blocks to the
+  // canvas via add_css_rules instead of in-band HTML — see extractStyleBlocks
+  // for the rationale (GrapesJS' parseHtml strips <style> on import).
+  const {
+    cssText: extractedCss,
+    htmlWithoutStyles: htmlNoStyles,
+    blockCount,
+  } = extractStyleBlocks(result.html);
   console.log(
-    `[designjs] extracted ${cssBlocks.length} <style> block(s) totalling ${(extractedCss.length / 1024).toFixed(1)}KB; will route via add_css_rules`,
+    `[designjs] extracted ${blockCount} <style> block(s) totalling ${(extractedCss.length / 1024).toFixed(1)}KB; will route via add_css_rules`,
   );
 
   // Style blocks have been stripped; the captured <html> wrapper now

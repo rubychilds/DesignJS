@@ -58,13 +58,57 @@ Color drift is a separate compound bug — partly cascade interaction with the
 GrapesJS CSS-explosion, partly the `INHERITED_DIFF` mechanism interacting with the
 captured root being re-parented under GrapesJS' light-theme default body.
 
-### Other fixtures — TODO
+### en.wikipedia.org/wiki/Love (post-v0.3.5 + 8MB cap)
 
-Full plan calls for N≥5 reference pages (Wikipedia, MDN, Tailwind landing,
-Bootstrap demo, rubychilds.com) to establish a distribution. Deferred —
-each requires a user-driven capture cycle (extension reload + navigate +
-click extension + wait for capture to land), and we'd rather use the budget
-on running experiments against the Python-docs baseline.
+Captured 2026-05-23 after the `PAGE_CAPTURE_HARD_LIMIT` bump to 8MB
+(Wikipedia Love trips the prior 2MB cap at 2,097,232 bytes with mode:"inline").
+v0.3.5 pipeline as of `2048128` (Experiment C: `mode: "inline"` pre-inlined styles).
+
+| Metric | Source | Captured | Delta |
+|---|---|---|---|
+| Pixel diff (capture-compare, 1200×4000 scoring window) | — | — | **8.22%** |
+| Elements | 6,929 | 6,931 | +2 (effectively identical) |
+| Paired by walk-order UID | — | 6,929 | **100% pairing** ✓ |
+| CSS rules | 1,619 | 15,508 | +13,889 (mode:"inline" inflation) |
+| Document height | 23,090px | 21,601px (body) | -1,489px (-6.4%) |
+| Sampled property mismatches (50-element fingerprint, 30 props each) | — | — | **399** |
+
+**Top mismatching properties:**
+
+| Property | Mismatch count |
+|---|---|
+| width | 48 |
+| height | 38 |
+| display | 33 |
+| font-family | 25 |
+| margin-bottom | 24 |
+
+**Reading vs Python docs baseline:**
+
+| Metric | Python docs (post-C) | Wikipedia Love | Direction |
+|---|---|---|---|
+| Pixel diff | 12.90% | 8.22% | better (probably whitespace artefact — Wikipedia has more uniform text blocks) |
+| Sampled mismatches | 102 | 399 | worse (~4× — page is ~4× larger, but per-property drift rate also higher: 13% vs 7%) |
+| UID pairing | 100% | 100% | unchanged |
+
+**Diagnostic:** width/height drift is back in the top 5 (was dropped out of
+top 5 on Python docs after Experiment C). Suggests the auto→resolved-pixel
+problem `mode: "inline"` largely fixed on Python docs returns on heavier
+nested layout contexts (Wikipedia infobox, multi-column TOC, floated
+sidebar). font-family drift (25) is novel — Wikipedia uses a `sans-serif`
+system stack, not Google Fonts, so the font-CDN allowlist (`b1e0d0b`)
+doesn't help; we may need to preserve declared font-family stacks even
+when they don't reference a CDN.
+
+### Other fixtures — still TODO
+
+| Fixture | Captured | Notes |
+|---------|----------|-------|
+| Wikipedia | ✅ 2026-05-23 (Love) | See row above |
+| MDN article | — | |
+| Tailwind landing | — | |
+| Bootstrap demo | — | |
+| rubychilds.com | — | Default scorecard target — capture before next pipeline change |
 
 Capture these whenever convenient and append rows to the table above.
 

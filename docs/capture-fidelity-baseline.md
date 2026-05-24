@@ -60,45 +60,53 @@ captured root being re-parented under GrapesJS' light-theme default body.
 
 ### en.wikipedia.org/wiki/Love (post-v0.3.5 + 8MB cap)
 
-Captured 2026-05-23 after the `PAGE_CAPTURE_HARD_LIMIT` bump to 8MB
-(Wikipedia Love trips the prior 2MB cap at 2,097,232 bytes with mode:"inline").
-v0.3.5 pipeline as of `2048128` (Experiment C: `mode: "inline"` pre-inlined styles).
+Pipeline at measurement time: v0.3.5 + dedup hoist (`124c6f3`) +
+multi-column properties (`eacfb6d`). Diff tool with walk-alignment fix
+(`bbd7da3`) and ε-tolerance (`39e8bae`).
 
 | Metric | Source | Captured | Delta |
 |---|---|---|---|
 | Pixel diff (capture-compare, 1200×4000 scoring window) | — | — | **8.22%** |
-| Elements | 6,929 | 6,931 | +2 (effectively identical) |
-| Paired by walk-order UID | — | 6,929 | **100% pairing** ✓ |
-| CSS rules | 1,619 | 15,508 | +13,889 (mode:"inline" inflation) |
-| Document height | 23,090px | 21,601px (body) | -1,489px (-6.4%) |
-| Sampled property mismatches (50-element fingerprint, 30 props each) | — | — | **399** |
+| Elements | 6,930 | 6,931 | +1 |
+| Paired by walk-order UID | — | 6,930 | **100% pairing** ✓ |
+| Tag-identity check (post-`bbd7da3`) | — | 48/50 sample tagMatch (rest = expected `body`/`html` → `div` swaps) | ✓ |
+| CSS rules | 1,619 | **841** | **-778 (dedup hoist — was 15,508 pre-`124c6f3`)** |
+| Iframe DOM nodes | — | 7,758 | down from 22,425 pre-dedup |
+| Document height | 23,090px | 20,931px (body) | -2,159px (-9.4%) |
+| Sampled property mismatches (50-element fingerprint, 30 props each) | — | — | **104** |
+| Near-miss px deltas filtered (ε=1px) | — | 25 | sub-pixel rounding noise |
 
 **Top mismatching properties:**
 
 | Property | Mismatch count |
 |---|---|
-| width | 48 |
-| height | 38 |
-| display | 33 |
-| font-family | 25 |
-| margin-bottom | 24 |
+| height | 22 |
+| color | 14 |
+| width | 13 |
+| display | 8 |
+| margin-bottom | 8 |
 
 **Reading vs Python docs baseline:**
 
 | Metric | Python docs (post-C) | Wikipedia Love | Direction |
 |---|---|---|---|
-| Pixel diff | 12.90% | 8.22% | better (probably whitespace artefact — Wikipedia has more uniform text blocks) |
-| Sampled mismatches | 102 | 399 | worse (~4× — page is ~4× larger, but per-property drift rate also higher: 13% vs 7%) |
+| Pixel diff | 12.90% | 8.22% | better (whitespace match favors Wikipedia; lean on drift, not pixel diff) |
+| Sampled mismatches | 102 | 104 | effectively even — Wikipedia is ~4× larger but drift rate per property is similar |
 | UID pairing | 100% | 100% | unchanged |
 
-**Diagnostic:** width/height drift is back in the top 5 (was dropped out of
-top 5 on Python docs after Experiment C). Suggests the auto→resolved-pixel
-problem `mode: "inline"` largely fixed on Python docs returns on heavier
-nested layout contexts (Wikipedia infobox, multi-column TOC, floated
-sidebar). font-family drift (25) is novel — Wikipedia uses a `sans-serif`
-system stack, not Google Fonts, so the font-CDN allowlist (`b1e0d0b`)
-doesn't help; we may need to preserve declared font-family stacks even
-when they don't reference a CDN.
+**Diagnostic:** of the 8 remaining `display` mismatches, 7 are `<A>` elements
+losing `display: flex` → `display: inline` after the capture lands in the
+canvas. Hypothesis: dedup-class cascade losing to a higher-specificity
+author-CSS rule, or GrapesJS' default anchor-element styling overriding
+our class. Next step is to inspect one of these anchors in the canvas
+DevTools to confirm the mechanism, then either bump dedup-class specificity
+(extra class? `!important`?) or exclude `display` from dedup hoists.
+
+**Earlier measurement (pre-`bbd7da3`)** reported 399 sampled mismatches with
+33 in `display`. Those numbers were a diff-script artefact: source-side and
+captured-side walks diverged (source started at `body`, missed scroll-settle,
+didn't drop `<head>`), so 78% of paired UIDs compared the wrong elements.
+The 104/8 figures above are the first numbers measured after that fix.
 
 ### Other fixtures — still TODO
 

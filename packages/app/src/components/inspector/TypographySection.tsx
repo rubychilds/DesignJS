@@ -10,6 +10,7 @@ import {
   TextStrikethrough,
   TextUnderline,
 } from "../../canvas/chrome-icons.js";
+import { hasOnlyTextContent } from "../../canvas/primitives.js";
 import { cn } from "../../lib/utils.js";
 import {
   clearStyle,
@@ -44,7 +45,11 @@ const TEXT_TAGS = new Set([
 
 export function isTypographyTarget(component: Component): boolean {
   const tag = String(component.get?.("tagName") ?? "").toLowerCase();
-  return TEXT_TAGS.has(tag);
+  if (!TEXT_TAGS.has(tag)) return false;
+  // Tag alone isn't enough — <a> and <button> wrapping <img> children (e.g.
+  // the Wikipedia logo) shouldn't surface typography controls that don't
+  // apply. Require actual text content.
+  return hasOnlyTextContent(component);
 }
 
 const FONT_FAMILY_PRESETS = [

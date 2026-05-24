@@ -330,6 +330,9 @@ async function capturePage(): Promise<void> {
     });
   }
   const extractedCss = cssBlocks.join("\n");
+  console.log(
+    `[designjs] extracted ${cssBlocks.length} <style> block(s) totalling ${(extractedCss.length / 1024).toFixed(1)}KB; will route via add_css_rules`,
+  );
 
   // Style blocks have been stripped; the captured <html> wrapper now
   // leads. Swap html / body to <div> so GrapesJS accepts the structure.

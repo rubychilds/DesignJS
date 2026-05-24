@@ -30,6 +30,7 @@ import {
   fitArtboardToContent,
   listArtboards,
 } from "../canvas/artboards.js";
+import { chunkCss } from "../canvas/css-chunk.js";
 import { htmlToJsx, mergeStylesIntoHtml } from "../canvas/jsx-export.js";
 import { getVariables, setVariables } from "../canvas/variables.js";
 
@@ -302,15 +303,21 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
 
     add_css_rules: (params) => {
       const input = AddCssRulesInput.parse(params);
-      // CssComposer.addRules parses the cssText, builds CssRule models, and
-      // appends them to the editor's CSS collection. GrapesJS renders the
-      // collection into each frame's iframe stylesheet automatically, so
-      // class references in already-imported HTML resolve once the rules
-      // land. `artboardId` is accepted for forward compatibility (per-frame
-      // CSS scoping is a future GrapesJS feature) — today the rules are
-      // class-keyed so cross-frame leakage isn't a concern in practice.
-      const rules = editor.Css.addRules(input.cssText);
-      return { ruleCount: Array.isArray(rules) ? rules.length : 0 };
+      // Chunk the cssText at rule boundaries before sending to addRules.
+      // GrapesJS' CSS parser returns 0 rules for the whole batch when it
+      // hits a rule it can't handle — verified at 549KB of Wikipedia author
+      // CSS (head 5KB parsed 43 rules; full string parsed 0). Chunking
+      // bounds the blast radius of any single failing rule to its chunk.
+      const chunks = chunkCss(input.cssText);
+      let ruleCount = 0;
+      for (const chunk of chunks) {
+        const rules = editor.Css.addRules(chunk);
+        if (Array.isArray(rules)) ruleCount += rules.length;
+      }
+      console.log(
+        `[designjs:bridge] add_css_rules: ${(input.cssText.length / 1024).toFixed(1)}KB → ${chunks.length} chunk(s) → ${ruleCount} rule(s) parsed`,
+      );
+      return { ruleCount };
     },
 
     update_styles: (params) => {

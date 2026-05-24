@@ -126,15 +126,26 @@ async function relayCapture(
     // CSS step fails the structural capture still lands (matches the
     // backplate's resilience).
     if (msg.cssText && msg.cssText.length > 0) {
+      console.log(
+        `[designjs] dispatching add_css_rules: ${(msg.cssText.length / 1024).toFixed(1)}KB`,
+      );
       try {
-        await bridge.send({
+        const cssResult = await bridge.send({
           tool: "add_css_rules",
           params: { cssText: msg.cssText, artboardId: artboard.id },
           timeoutMs: 60_000,
         });
+        console.log(`[designjs] add_css_rules ok:`, cssResult);
       } catch (err) {
-        console.warn("[designjs] add_css_rules failed; structural capture will continue with reduced fidelity:", err);
+        console.error(
+          `[designjs] add_css_rules FAILED — captured-page styles won't land. ` +
+            `Likely causes: canvas missing the handler (restart pnpm dev) or ` +
+            `editor.Css.addRules threw. Error:`,
+          err,
+        );
       }
+    } else {
+      console.warn("[designjs] no cssText in capture:send — extension content script didn't extract style blocks");
     }
 
     // Backplate goes in next so it sits *behind* the HTML tree in

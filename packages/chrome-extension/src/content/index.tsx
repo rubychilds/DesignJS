@@ -262,10 +262,22 @@ async function capturePage(): Promise<void> {
   // improve, the bug isn't where the styles live — it's the resolved
   // pixel values we capture from getComputedStyle for auto-sized
   // properties (width/height drift at 50/50 in the current baseline).
+  // Dedup tuning escape hatch for sweep runs. Set
+  //   window.__designjsDedup = { threshold: 3, minSavings: 200, classCap: 200 }
+  //   window.__designjsDedup = { enabled: false }   // disable entirely
+  // in DevTools before triggering capture. No rebuild needed.
+  const dedupOverride =
+    (window as unknown as { __designjsDedup?: Record<string, unknown> })
+      .__designjsDedup ?? {};
+  const dedupEnabled = (dedupOverride.enabled as boolean | undefined) ?? true;
   const result = serialize(root, {
     hardLimit: PAGE_CAPTURE_HARD_LIMIT,
     mode: "inline",
     excludeIds: [ROOT_ID],
+    dedup: dedupEnabled,
+    dedupThreshold: dedupOverride.threshold as number | undefined,
+    dedupMinSavings: dedupOverride.minSavings as number | undefined,
+    dedupClassCap: dedupOverride.classCap as number | undefined,
   });
   const t1 = performance.now();
   if ("error" in result) {

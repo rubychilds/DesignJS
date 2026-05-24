@@ -65,6 +65,24 @@ export interface SerializeOptions {
    * UI doesn't end up in the captured artboard.
    */
   excludeIds?: readonly string[];
+  /**
+   * Hoist frequently-repeated computed-style blocks (mode:"inline")
+   * into shared classes inside a wrapper-stylable `<style data-designjs-
+   * dedup>` block. Reduces payload + GrapesJS rule count + parse time
+   * on long pages (Wikipedia-class articles emit ~15k rules per 7k
+   * elements without dedup). Off by default; the page-capture path
+   * opts in. Element capture should stay off — small selections rarely
+   * repeat blocks enough to dedup, and fidelity matters more there.
+   */
+  dedup?: boolean;
+  /** Promote a block to a class after this many occurrences. Default 5. */
+  dedupThreshold?: number;
+  /** Minimum estimated bytes saved per promotion. Default 500. */
+  dedupMinSavings?: number;
+  /** Hard cap on hoisted class count — keeps the GrapesJS CSS Manager
+   * surface small (the scale fight that mode:"inline" originally bypassed
+   * to win the v0.3.5 fidelity baseline). Default 100. */
+  dedupClassCap?: number;
 }
 
 const DEFAULT_SOFT_LIMIT = 400 * 1024;
@@ -306,6 +324,56 @@ function buildInlineStyle(
   return parts.join(";");
 }
 
+interface HoistedStyle {
+  /** Canonical (sorted) style declarations. Same input → same hash. */
+  canon: string;
+  count: number;
+  /** Assigned when the block crosses the promotion threshold. */
+  className: string | null;
+  /** Clone elements that emitted this block before it was promoted. On
+   * promotion we walk this list and swap their `style=""` for `class=""`. */
+  pendingRefs: HTMLElement[];
+}
+
+interface DedupState {
+  threshold: number;
+  minSavings: number;
+  classCap: number;
+  /** key = fnv1a(canon). */
+  hoistMap: Map<string, HoistedStyle>;
+  /** CSS class definitions, in promotion order. */
+  hoistBuffer: string[];
+  nextClassN: number;
+}
+
+/**
+ * Order-invariant canonicalization of a style block. `mode:"inline"`
+ * builds blocks like `width:100px;height:50px;color:red` in property-
+ * iteration order; two elements with the same computed style might emit
+ * the same properties in different orders depending on browser quirks
+ * (rare but possible across iframes / shadow roots). Sorting puts both
+ * on the same hash so dedup catches them.
+ */
+export function canonicalizeStyleBlock(decls: string): string {
+  return decls
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .sort()
+    .join(";");
+}
+
+/** 32-bit FNV-1a — fast, no allocations, plenty of bits for ~10⁴ distinct
+ * style blocks. Returns 8-char hex so Map keys stay compact. */
+function fnv1a32(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 interface Counters {
   nodes: number;
   bytes: number;
@@ -335,6 +403,9 @@ interface Counters {
   excludeIds?: readonly string[];
   /** Serialization mode (see SerializeMode). */
   mode: SerializeMode;
+  /** Style-dedup state — present iff SerializeOptions.dedup is true and
+   * mode is "inline". See SerializeOptions.dedup for the rationale. */
+  dedup?: DedupState;
 }
 
 /**
@@ -395,6 +466,80 @@ function inlineSameOriginIframe(
   counters.bytes += result.byteCount;
 }
 
+/**
+ * Style-dedup: record this element's emitted block and, once a block
+ * crosses the promotion threshold, hoist it into a shared `_djhN` class.
+ *
+ * Single-pass: the first `threshold-1` occurrences keep their inline
+ * `style=""`. The Nth (= threshold) occurrence triggers promotion —
+ * we walk the pending-refs list and retroactively rewrite each prior
+ * element's `style=""` to `class="_djhN"`. Subsequent occurrences are
+ * rewritten in-line as they're seen.
+ *
+ * No-op when `counters.dedup` is undefined (caller didn't opt in).
+ *
+ * Why we promote based on a savings estimate AND a class-count cap:
+ *  - Savings estimate gates promotion of tiny blocks where the per-
+ *    element class-attr overhead (~13 bytes) eats the inline-savings.
+ *  - Class-count cap bounds the GrapesJS CSS Manager surface area — the
+ *    very scale problem mode:"inline" originally bypassed (Experiment C
+ *    win was 247→102 mismatches; restoring full class-hoist regressed
+ *    that). 100 classes is small enough to keep the CSS Manager fight
+ *    bounded but large enough to dedup the top-K patterns on a page
+ *    like Wikipedia where ~5-10 patterns account for most bytes.
+ */
+function recordForDedup(
+  el: HTMLElement,
+  styleBlock: string,
+  counters: Counters,
+): void {
+  const dedup = counters.dedup;
+  if (!dedup) return;
+
+  const canon = canonicalizeStyleBlock(styleBlock);
+  const key = fnv1a32(canon);
+  let entry = dedup.hoistMap.get(key);
+  if (!entry) {
+    entry = { canon, count: 0, className: null, pendingRefs: [] };
+    dedup.hoistMap.set(key, entry);
+  }
+  entry.count++;
+
+  if (entry.className !== null) {
+    // Already promoted — swap this element's inline style for the class.
+    swapStyleForClass(el, entry.className);
+    return;
+  }
+
+  // Hold a ref so we can retroactively swap if this block gets promoted.
+  entry.pendingRefs.push(el);
+
+  if (entry.count < dedup.threshold) return;
+  if (dedup.nextClassN >= dedup.classCap) return;
+
+  // Estimate savings: each future occurrence costs `classCost` instead of
+  // `inlineCost`; minus a one-time `canon` + class-def overhead. Account
+  // for the elements we've already seen (count - 1 retroactive swaps).
+  const classNameLen = `_djh${dedup.nextClassN}`.length;
+  const inlineCost = styleBlock.length + 9; // ` style="..."`
+  const classCost = classNameLen + 9;       // ` class="..."`
+  const classDefOverhead = canon.length + 3; // `.X{...}` (X = class name; ≈)
+  const savings = entry.count * (inlineCost - classCost) - classDefOverhead;
+  if (savings < dedup.minSavings) return;
+
+  // Promote.
+  const className = `_djh${dedup.nextClassN++}`;
+  entry.className = className;
+  dedup.hoistBuffer.push(`.${className}{${entry.canon}}`);
+  for (const ref of entry.pendingRefs) swapStyleForClass(ref, className);
+  entry.pendingRefs = [];
+}
+
+function swapStyleForClass(el: HTMLElement, className: string): void {
+  el.removeAttribute("style");
+  el.classList.add(className);
+}
+
 function stripAndInline(
   clone: Element,
   src: Element,
@@ -441,6 +586,10 @@ function stripAndInline(
   // wipe our composed inline style.
   if (style && counters.mode === "inline") {
     (clone as HTMLElement).setAttribute("style", style);
+    // Style-dedup record-and-maybe-promote. Mutates `clone` in place if
+    // the block crosses the promotion threshold (swaps style="" for
+    // class="_djhN"). Inert when counters.dedup is undefined.
+    recordForDedup(clone as HTMLElement, style, counters);
   }
 
   // Rewrite relative src/srcset/href on media elements to absolute URLs
@@ -523,6 +672,21 @@ export function serialize(
   }
 
   const clone = root.cloneNode(true) as Element;
+  // Dedup only makes sense in inline mode (computed mode already hoists
+  // every unique block by definition). Silently ignore the flag in
+  // computed mode rather than erroring — keeps callers from having to
+  // branch on mode.
+  const dedup: DedupState | undefined =
+    opts.dedup && mode === "inline"
+      ? {
+          threshold: opts.dedupThreshold ?? 5,
+          minSavings: opts.dedupMinSavings ?? 500,
+          classCap: opts.dedupClassCap ?? 100,
+          hoistMap: new Map(),
+          hoistBuffer: [],
+          nextClassN: 0,
+        }
+      : undefined;
   const counters: Counters = {
     nodes: 0,
     bytes: 0,
@@ -534,6 +698,7 @@ export function serialize(
     uidCounter: { n: 0 },
     excludeIds: opts.excludeIds,
     mode,
+    dedup,
   };
 
   // Pass `null` as parentSrc for the captured root so buildInlineStyle's
@@ -585,6 +750,20 @@ export function serialize(
     styleEl.setAttribute("data-designjs-capture", "");
     styleEl.textContent = cssText;
     (clone as HTMLElement).insertBefore(styleEl, (clone as HTMLElement).firstChild);
+  }
+
+  // Dedup hoist block (inline mode + dedup opt-in). Same wrapper-stylable
+  // pattern as the computed-mode block above — `data-designjs-dedup`
+  // marker, prepended as firstChild so GrapesJS' parseCss picks it up
+  // before any element references the classes. Order vs author/computed
+  // styles: dedup goes BEFORE the author block (which is prepended after
+  // this), so author CSS still wins on cascade ties — same precedence
+  // as if these were per-element inline styles in the captured tree.
+  if (counters.dedup && counters.dedup.hoistBuffer.length > 0) {
+    const dedupEl = clone.ownerDocument.createElement("style");
+    dedupEl.setAttribute("data-designjs-dedup", "");
+    dedupEl.textContent = counters.dedup.hoistBuffer.join("");
+    (clone as HTMLElement).insertBefore(dedupEl, (clone as HTMLElement).firstChild);
   }
 
   // Author CSS supplement (A.2). Inserted as firstChild so it appears

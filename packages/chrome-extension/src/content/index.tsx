@@ -263,13 +263,23 @@ async function capturePage(): Promise<void> {
   // pixel values we capture from getComputedStyle for auto-sized
   // properties (width/height drift at 50/50 in the current baseline).
   // Dedup tuning escape hatch for sweep runs. Set
+  //   window.__designjsDedup = { enabled: true }    // opt back in
   //   window.__designjsDedup = { threshold: 3, minSavings: 200, classCap: 200 }
-  //   window.__designjsDedup = { enabled: false }   // disable entirely
   // in DevTools before triggering capture. No rebuild needed.
+  //
+  // Default OFF as of 2026-05-24: GrapesJS' parseHtml strips the
+  // <style data-designjs-dedup> block on import (verified in canvas
+  // DevTools: 0 _djh* rules in 1949 iframe stylesheets), so dedup-hoisted
+  // elements lose their styles entirely — the 7 <a> flex → inline
+  // mismatches on Wikipedia traced back here. Until the planned
+  // add_css_rules bridge tool ships (lands dedup CSS directly via
+  // editor.Css.addRules, bypassing the HTML parser), keeping all styles
+  // inline is the higher-fidelity choice. Cost: ~1MB payload growth on
+  // Wikipedia-class pages, still well under the 8MB cap.
   const dedupOverride =
     (window as unknown as { __designjsDedup?: Record<string, unknown> })
       .__designjsDedup ?? {};
-  const dedupEnabled = (dedupOverride.enabled as boolean | undefined) ?? true;
+  const dedupEnabled = (dedupOverride.enabled as boolean | undefined) ?? false;
   const result = serialize(root, {
     hardLimit: PAGE_CAPTURE_HARD_LIMIT,
     mode: "inline",

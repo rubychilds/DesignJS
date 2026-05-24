@@ -302,8 +302,14 @@ async function capturePage(): Promise<void> {
   // tree. Swap the outer <html> AND the inner <body> for <div> so the
   // inlined styles still apply but the nesting is legal. Markers retain
   // the original tag identity for inspector / future tooling.
+  // Style blocks (author / dedup / captured-computed) now precede the
+  // captured <html> wrapper in result.html — emitted as siblings, not
+  // children, so GrapesJS' parseCss picks them up via its CSS Manager
+  // rather than stripping them when the wrapper component doesn't allow
+  // <style> children. The regex therefore needs to match <html anywhere
+  // rather than at start-of-string.
   const swapped = result.html
-    .replace(/^<html\b/, '<div data-dj-source-html=""')
+    .replace(/<html\b/, '<div data-dj-source-html=""')
     .replace(/<\/html>$/, "</div>")
     .replace(/<body\b/g, '<div data-dj-source-body=""')
     .replace(/<\/body>/g, "</div>");

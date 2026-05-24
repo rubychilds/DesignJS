@@ -157,15 +157,20 @@ describe("serialize — author-CSS supplement", () => {
     });
     if ("error" in result) throw new Error(`unexpected: ${result.error}`);
 
-    const parsed = new DOMParser().parseFromString(result.html, "text/html");
-    const root = parsed.querySelector("#root")!;
-    const styles = Array.from(root.children).filter(
-      (el) => el.tagName === "STYLE",
-    );
-    // First style child should be the author block, second the captured.
-    expect(styles.length).toBeGreaterThanOrEqual(2);
-    expect(styles[0]!.hasAttribute("data-designjs-author")).toBe(true);
-    expect(styles[1]!.hasAttribute("data-designjs-capture")).toBe(true);
+    // Style blocks emit OUTSIDE the captured wrapper (as siblings preceding
+    // it) so GrapesJS' parseCss routes them to the CSS Manager instead of
+    // stripping them on import (see D1 fix). Order in the import string:
+    // author → dedup → captured-computed → wrapper. So in the parsed result,
+    // looking at the HEAD's body children, both styles precede #root and
+    // author comes before captured (cascade: later wins, so captured beats
+    // author on ties — same outcome as the old child-of-root ordering).
+    const idxAuthor = result.html.indexOf("data-designjs-author");
+    const idxCapture = result.html.indexOf("data-designjs-capture");
+    const idxRoot = result.html.indexOf('id="root"');
+    expect(idxAuthor).toBeGreaterThanOrEqual(0);
+    expect(idxCapture).toBeGreaterThanOrEqual(0);
+    expect(idxAuthor).toBeLessThan(idxCapture);
+    expect(idxCapture).toBeLessThan(idxRoot);
   });
 
   it("omits the author block when no readable author CSS exists", () => {

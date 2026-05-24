@@ -786,56 +786,49 @@ export function serialize(
   //    leaves styleToClass empty so nothing flattens.
   //  - The hoisted <style data-designjs-capture> block has no rules
   //    to emit in inline mode.
+  let capturedStylesHtml = "";
   if (mode === "computed") {
     flattenPassThroughWrappers(clone, counters.styleToClass);
 
-    // Emit a <style> block with one rule per unique computed-style signature.
-    // Prepended inside the clone so GrapesJS' parser finds it via parseCss and
-    // registers the rules in the canvas cascade — classes on elements resolve
-    // against these rules just like regular class-based CSS.
     const cssRules: string[] = [];
     for (const [style, className] of counters.styleToClass) {
       cssRules.push(`.${className}{${style}}`);
     }
-    const cssText = cssRules.join("");
-    const styleEl = clone.ownerDocument.createElement("style");
-    styleEl.setAttribute("data-designjs-capture", "");
-    styleEl.textContent = cssText;
-    (clone as HTMLElement).insertBefore(styleEl, (clone as HTMLElement).firstChild);
+    capturedStylesHtml = cssRules.length
+      ? `<style data-designjs-capture="">${cssRules.join("")}</style>`
+      : "";
   }
 
-  // Dedup hoist block (inline mode + dedup opt-in). Same wrapper-stylable
-  // pattern as the computed-mode block above — `data-designjs-dedup`
-  // marker, prepended as firstChild so GrapesJS' parseCss picks it up
-  // before any element references the classes. Order vs author/computed
-  // styles: dedup goes BEFORE the author block (which is prepended after
-  // this), so author CSS still wins on cascade ties — same precedence
-  // as if these were per-element inline styles in the captured tree.
-  if (counters.dedup && counters.dedup.hoistBuffer.length > 0) {
-    const dedupEl = clone.ownerDocument.createElement("style");
-    dedupEl.setAttribute("data-designjs-dedup", "");
-    dedupEl.textContent = counters.dedup.hoistBuffer.join("");
-    (clone as HTMLElement).insertBefore(dedupEl, (clone as HTMLElement).firstChild);
-  }
+  // Dedup hoist block (inline mode + dedup opt-in).
+  const dedupStylesHtml =
+    counters.dedup && counters.dedup.hoistBuffer.length > 0
+      ? `<style data-designjs-dedup="">${counters.dedup.hoistBuffer.join("")}</style>`
+      : "";
 
-  // Author CSS supplement (A.2). Inserted as firstChild so it appears
-  // *before* the computed-style block in source order — computed wins
-  // on conflicts (cascade is order-based for equal specificity), and
-  // author CSS adds @keyframes / @font-face / ::before / ::after /
-  // @supports rules the computed walker can't see. See
+  // Author CSS supplement (A.2). Adds @keyframes / @font-face / ::before /
+  // ::after / @supports rules the computed walker can't see. See
   // collectAuthorCss for the cascade-note caveat on @media reflow.
   const author = collectAuthorCss(root.ownerDocument);
-  if (author.cssText) {
-    const authorEl = clone.ownerDocument.createElement("style");
-    authorEl.setAttribute("data-designjs-author", "");
-    authorEl.textContent = author.cssText;
-    (clone as HTMLElement).insertBefore(
-      authorEl,
-      (clone as HTMLElement).firstChild,
-    );
-  }
+  const authorStylesHtml = author.cssText
+    ? `<style data-designjs-author="">${author.cssText}</style>`
+    : "";
 
-  const html = (clone as HTMLElement).outerHTML;
+  // Emit style blocks OUTSIDE the captured wrapper element. The fallback
+  // workaround in epic-8-followups §2 documented this: GrapesJS' parseHtml
+  // strips `<style>` elements when they're children of a wrapper component
+  // type whose allowed-children list doesn't include `<style>`. Wikipedia
+  // capture verified this in canvas DevTools: 0 of 976 stylesheets carried
+  // any `_djh*` rule when the dedup block was nested inside the captured
+  // <div data-dj-source-html>. Emitting the blocks as siblings of the
+  // wrapper (top level of the imported HTML) routes them to the GrapesJS
+  // CSS Manager via parseCss instead.
+  //
+  // Order in the import HTML: author → dedup → captured-computed → wrapper.
+  // Cascade resolution: equal specificity → later wins → computed wins over
+  // dedup wins over author, matching the precedence we had when these were
+  // children of the wrapper.
+  const html =
+    authorStylesHtml + dedupStylesHtml + capturedStylesHtml + (clone as HTMLElement).outerHTML;
   const byteCount = new Blob([html]).size;
 
   if (byteCount > hardLimit) {

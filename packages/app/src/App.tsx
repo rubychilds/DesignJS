@@ -6,6 +6,7 @@ import "grapesjs/dist/css/grapes.min.css";
 
 import { editorOptions, PRIMITIVE_BASE_CSS } from "./canvas/editor-options.js";
 import { ensureDefaultArtboard, ensurePageRoot, healFrameDimensions } from "./canvas/artboards.js";
+import { widenComponentStylable } from "./canvas/widen-stylable.js";
 import { attachPasteImport, importPastedHtml } from "./canvas/paste-import.js";
 import { attachPersistence, loadProject, saveProject } from "./canvas/persistence.js";
 import {
@@ -75,6 +76,16 @@ export function App() {
     initializedRef.current = true;
     editorRef.current = editor;
     setEditor(editor);
+
+    // Widen the `stylable` allowlist on built-in component types so
+    // captured HTML preserves width / height / display / flex / etc.
+    // on import. The default `wrapper` type is the load-bearing one
+    // (narrowed to 7 background props upstream); other types default to
+    // `true` but we make the surface explicit and forward-compatible.
+    // See widen-stylable.ts for the full set + rationale. Must run
+    // before any frame creation / loadProjectData so the override
+    // applies to all subsequently-built components.
+    widenComponentStylable(editor);
 
     // Register the iframe-CSS injection listener FIRST — before loadProject
     // or ensureDefaultArtboard. Those can synchronously create frames whose

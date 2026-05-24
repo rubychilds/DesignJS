@@ -73,43 +73,34 @@ function classNamesOf(component: Component): string[] {
 }
 
 function findById(editor: Editor, id: string): Component | undefined {
-  const frames = editor.Canvas.getFrames();
-  const seenIds: string[] = [];
-  for (const frame of frames) {
+  // Walk every frame's wrapper, plus editor.getWrapper() as a fallback.
+  // Under v0.1's multi-frame layout, `add_components` with an `artboardId`
+  // lands content in `frame.get("component")` for that specific frame —
+  // which may not be the wrapper editor.getWrapper() returns. Searching
+  // only the latter produced "component not found" for IDs we'd just
+  // handed out (see story-mcp-autosave update_styles regression).
+  const search = (root: Component | undefined): Component | undefined => {
+    if (!root) return undefined;
+    if (root.getId() === id) return root;
+    const stack: Component[] = [root];
+    while (stack.length > 0) {
+      const c = stack.pop()!;
+      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
+      for (const child of childArray) {
+        if (child.getId() === id) return child;
+        stack.push(child);
+      }
+    }
+    return undefined;
+  };
+  for (const frame of editor.Canvas.getFrames()) {
     const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
       | Component
       | undefined;
-    if (!wrapper) continue;
-    seenIds.push(`wrapper:${wrapper.getId()}`);
-    if (wrapper.getId() === id) return wrapper;
-    const stack: Component[] = [wrapper];
-    while (stack.length > 0) {
-      const c = stack.pop()!;
-      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-      for (const child of childArray) {
-        seenIds.push(child.getId());
-        if (child.getId() === id) return child;
-        stack.push(child);
-      }
-    }
+    const hit = search(wrapper);
+    if (hit) return hit;
   }
-  const editorWrapper = editor.getWrapper();
-  if (editorWrapper) {
-    seenIds.push(`editor.wrapper:${editorWrapper.getId()}`);
-    if (editorWrapper.getId() === id) return editorWrapper;
-    const stack: Component[] = [editorWrapper];
-    while (stack.length > 0) {
-      const c = stack.pop()!;
-      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-      for (const child of childArray) {
-        seenIds.push(`editor:${child.getId()}`);
-        if (child.getId() === id) return child;
-        stack.push(child);
-      }
-    }
-  }
-  (globalThis as unknown as { __findByIdLastSeen?: string[] }).__findByIdLastSeen = seenIds;
-  return undefined;
+  return search(editor.getWrapper() ?? undefined);
 }
 
 /**
@@ -310,10 +301,7 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
     update_styles: (params) => {
       const input = UpdateStylesInput.parse(params);
       const c = findById(editor, input.componentId);
-      if (!c) {
-        const seen = (globalThis as unknown as { __findByIdLastSeen?: string[] }).__findByIdLastSeen ?? [];
-        throw new Error(`component not found: ${input.componentId} (seen: ${seen.join(", ")})`);
-      }
+      if (!c) throw new Error(`component not found: ${input.componentId}`);
       c.addStyle(input.styles);
       return { styles: c.getStyle() };
     },

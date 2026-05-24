@@ -126,6 +126,12 @@ const NON_INHERITED: readonly string[] = [
   "grid-auto-columns", "grid-auto-rows", "grid-auto-flow",
   "grid-column", "grid-row",
   "justify-self", "place-self",
+  // CSS Multi-column Layout — Wikipedia's references / see-also / category
+  // footer collapses to single-column without these. column-gap is already
+  // covered in the flex section above (shared property).
+  "column-count", "column-width", "column-fill", "column-span",
+  "column-rule-color", "column-rule-style", "column-rule-width",
+  "break-inside", "break-before", "break-after",
 ];
 
 /**

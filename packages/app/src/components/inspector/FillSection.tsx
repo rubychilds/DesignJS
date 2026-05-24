@@ -39,6 +39,12 @@ function parseStack(bgImage: string, bgColor: string): FillLayer[] | null {
   if (!img || img === "none") {
     if (!col) return [];
     const c = parseColor(col);
+    // Computed `background-color` on an unstyled element returns
+    // `rgba(0, 0, 0, 0)` (browser default), which parseColor reads as
+    // opacity:0. That's not a user-set fill — treat it as empty so
+    // addLayer doesn't seed every new row with opacity:0 (the bug that
+    // produced `linear-gradient(rgba(R,G,B,0), …)` stacks).
+    if (c.opacity === 0) return [];
     return [newLayer(c.hex, c.opacity)];
   }
 

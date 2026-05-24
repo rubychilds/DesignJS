@@ -73,18 +73,42 @@ function classNamesOf(component: Component): string[] {
 }
 
 function findById(editor: Editor, id: string): Component | undefined {
-  const wrapper = editor.getWrapper();
-  if (!wrapper) return undefined;
-  if (wrapper.getId() === id) return wrapper;
-  const stack: Component[] = [wrapper];
-  while (stack.length > 0) {
-    const c = stack.pop()!;
-    const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-    for (const child of childArray) {
-      if (child.getId() === id) return child;
-      stack.push(child);
+  const frames = editor.Canvas.getFrames();
+  const seenIds: string[] = [];
+  for (const frame of frames) {
+    const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
+      | Component
+      | undefined;
+    if (!wrapper) continue;
+    seenIds.push(`wrapper:${wrapper.getId()}`);
+    if (wrapper.getId() === id) return wrapper;
+    const stack: Component[] = [wrapper];
+    while (stack.length > 0) {
+      const c = stack.pop()!;
+      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
+      for (const child of childArray) {
+        seenIds.push(child.getId());
+        if (child.getId() === id) return child;
+        stack.push(child);
+      }
     }
   }
+  const editorWrapper = editor.getWrapper();
+  if (editorWrapper) {
+    seenIds.push(`editor.wrapper:${editorWrapper.getId()}`);
+    if (editorWrapper.getId() === id) return editorWrapper;
+    const stack: Component[] = [editorWrapper];
+    while (stack.length > 0) {
+      const c = stack.pop()!;
+      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
+      for (const child of childArray) {
+        seenIds.push(`editor:${child.getId()}`);
+        if (child.getId() === id) return child;
+        stack.push(child);
+      }
+    }
+  }
+  (globalThis as unknown as { __findByIdLastSeen?: string[] }).__findByIdLastSeen = seenIds;
   return undefined;
 }
 
@@ -286,7 +310,10 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
     update_styles: (params) => {
       const input = UpdateStylesInput.parse(params);
       const c = findById(editor, input.componentId);
-      if (!c) throw new Error(`component not found: ${input.componentId}`);
+      if (!c) {
+        const seen = (globalThis as unknown as { __findByIdLastSeen?: string[] }).__findByIdLastSeen ?? [];
+        throw new Error(`component not found: ${input.componentId} (seen: ${seen.join(", ")})`);
+      }
       c.addStyle(input.styles);
       return { styles: c.getStyle() };
     },

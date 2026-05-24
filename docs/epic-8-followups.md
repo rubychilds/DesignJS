@@ -104,7 +104,9 @@ Known gaps that the current pipeline cannot close without architectural work. Se
 
 ### 3.1 — Google Fonts / external `@font-face` missing (HIGH impact)
 
-**Status:** ✅ Shipped — commit [`b1e0d0b`](../packages/chrome-extension/src/capture/style-serializer.ts) (2026-04-25) hoists allowlisted font-CDN `<link>` tags into the captured output. Allowlist: `fonts.googleapis.com`, `fonts.bunny.net`, `use.typekit.net`, `p.typekit.net`.
+**Status:** ✅ Shipped (CDN allowlist only) — commit [`b1e0d0b`](../packages/chrome-extension/src/capture/style-serializer.ts) (2026-04-25) hoists allowlisted font-CDN `<link>` tags into the captured output. Allowlist: `fonts.googleapis.com`, `fonts.bunny.net`, `use.typekit.net`, `p.typekit.net`.
+
+**Remaining gap:** Sites that bake Google Fonts into their own CSS (no `<link>` tag) or self-host fonts entirely. Multi-phase fix in [font-preservation-plan.md](./font-preservation-plan.md) — Phase 1 (Google Fonts name fallback, Onlook-style) and Phase 2 (font binary download + base64 embed, SingleFile-style).
 
 **Symptom:** Captured text renders in system fallback font (usually `-apple-system` / `BlinkMacSystemFont`) instead of the source page's font (Inter, Geist, Satoshi, etc.).
 

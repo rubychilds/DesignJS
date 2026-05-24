@@ -346,7 +346,7 @@ export function App({ onDismiss }: AppProps = {}) {
         {capture.kind === "error" && (
           <div className="rounded-sm border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[var(--text-xs)] text-destructive">
             {capture.error === "too-large"
-              ? "Selection too large. Try capturing a smaller section."
+              ? "Capture too large — exceeds the size limit. Element selection: try a smaller section. Whole-page: see DevTools console for the payload size."
               : capture.error === "bridge-disconnected"
                 ? "Lost connection to DesignJS. Check that pnpm dev is still running."
                 : capture.error === "empty-input"

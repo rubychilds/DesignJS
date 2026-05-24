@@ -205,4 +205,111 @@ chrome-extension package; typecheck clean; webpack build clean.
 
 ---
 
+## Addendum 2026-05-24 — CSS routing via the `add_css_rules` bridge tool
+
+ADR-0011 originally specified style serialization as an in-band concern:
+the extension serializes computed styles into HTML the canvas receives
+via `add_components`, where GrapesJS' `parseHtml` is expected to register
+`<style>` blocks via its CSS Manager during import. That contract held
+for `mode: "computed"` (commit `959331d`'s class-hoist fix) but broke on
+two fronts once the v0.3.5 fidelity work introduced new CSS sources.
+
+### Failure mode observed
+
+After dedup hoisting landed (commit `124c6f3`) and the author-CSS
+supplement (A.2) was generating substantial CSS surface, captures of
+Wikipedia "Love" showed dedup-classed elements rendering with UA defaults
+(7 `<a>` elements with `display: flex` resolving to `inline`). Canvas
+DevTools inspection confirmed **0 of 1,949 iframe stylesheets contained
+any `_djh*` rule**. The same survey found 0 `.mw-parser-output` rules
+from the author supplement. Both `<style>` blocks were silently being
+stripped from the import HTML by GrapesJS, regardless of whether they
+were placed as children of the captured wrapper or as top-level siblings
+of it (verified post-commit `c4248f3`, which moved them outside).
+
+### Decision: route captured CSS out-of-band via a new bridge tool
+
+Add an `add_css_rules` tool to the bridge protocol that calls
+`editor.Css.addRules(cssText)` directly on the canvas. This API
+registers rules in the editor's CSS Manager without going through
+`parseHtml` — the strip behavior doesn't apply, and rules render into
+each frame's iframe stylesheet via the editor's normal rendering path.
+
+The capture flow becomes a two-call dispatch (per artboard):
+
+  1. `create_artboard` — new frame
+  2. `add_css_rules` — register the captured CSS into the CSS Manager
+     before any element references the classes
+  3. `add_components` — import the structural HTML; classes resolve
+     against rules already registered in step 2
+  4. `fit_artboard` — best-effort height resize
+
+Implementation:
+
+- `9c99089` — bridge schema (`AddCssRulesInput / Output`) + canvas
+  handler + extension-side extraction + relayCapture orchestration.
+  Schema is `.strict()` per QA-2 conventions; 6 schema tests.
+- `de26fbf` — chunk the cssText at rule boundaries before calling
+  `addRules`. GrapesJS' CSS parser returns 0 rules for the entire batch
+  if any rule in the input fails — verified at 549KB of Wikipedia CSS
+  (head 5KB parsed 43 rules; full string yielded 0). 32KB chunks bound
+  the blast radius of one bad rule to its chunk, brace-depth-tracked so
+  at-rules never split. 5 chunkCss tests.
+- Extension-side: new `extract-styles.ts` helper pulls the three style
+  markers (`data-designjs-author / -dedup / -capture`) out of the
+  serializer's output, returns the CSS body for the bridge call plus
+  the styles-stripped HTML for `add_components`. 6 extract-styles tests.
+
+### Measured outcome
+
+Same Wikipedia capture, post-merge:
+
+| | Before `add_css_rules` | After |
+|---|---:|---:|
+| `_djh*` rules in iframe stylesheets | 0 | 100 (full classCap reached) |
+| `.mw-parser-output` rules | 0 | 233 |
+| Total iframe stylesheets | ~870 | 2,813 |
+| `<a class="_djh1">` computed `display` | `inline` | **`flex`** |
+| `addRules` parse result on 549KB cssText | 0 rules | 2,395 rules |
+
+### Consequences
+
+- **Bridge surface grows by one tool.** `add_css_rules` is now part of the
+  canvas-side contract any peer must implement. MCP server and any
+  future bridge consumer (e.g. the planned GrapesJS plugin in
+  ADR-0012's 2026-05-23 addendum) inherit this expectation. The tool
+  is dispatched canvas-side as a WRITE_TOOL so persistence catches the
+  state change.
+
+- **Capture flow gained a step.** The extension's `relayCapture` now
+  dispatches 3-4 sequential bridge calls per page capture (create →
+  css → optional backplate → components → fit). The `add_css_rules`
+  call is best-effort (try/catch) — a failure logs a warning but the
+  structural capture still proceeds, matching the backplate's failure
+  semantics.
+
+- **In-band `<style>` blocks deprecated for captured content.** The
+  extension content script now strips `<style data-designjs-*>` blocks
+  from the import HTML and routes them through `add_css_rules`
+  instead. The serializer still emits the blocks (other consumers may
+  rely on the in-HTML form), but the page-capture path drops them.
+
+- **Performance ceiling raised.** Chunking + canvas-side CSS Manager
+  routing converted a hard-failure mode (0 rules) into a graceful path
+  that handles Wikipedia-class CSS surfaces. `add_components` timeout
+  bumped to 180s in the same patch series to absorb GrapesJS' larger
+  component-tree builds (filed Q1 / Q2 / Q3 in epic-8-followups §9 as
+  the next performance investments).
+
+### Cross-references
+
+- [epic-8-followups.md](../epic-8-followups.md) §9 — full Tier 1 status
+  reflecting today's landings, plus Q1-Q3 perf follow-ups.
+- [ADR-0012](./0012-capture-fidelity-evolution.md) — the v0.4 CDP path
+  may eventually replace `add_css_rules` if `Network.getResponseBody`
+  + a different ingestion shape becomes viable; until then the
+  CSS-Manager route is canonical.
+
+---
+
 *End of ADR-0011.*

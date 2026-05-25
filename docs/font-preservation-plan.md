@@ -1,6 +1,6 @@
 # Font preservation in captured pages — phased plan
 
-**Status:** In progress — Phase 0 (this doc) shipped; Phase 1 next.
+**Status:** Phase 1 WIP on side branch (`f1-google-fonts-fallback`, commit `5c2a58b`). Sync script + bundled 1,934-family manifest + extractor / resolver module land there; remaining work before merge: tests per §D + end-to-end verification per §E. Phases 2 + 3 deferred.
 
 Working doc tracking the multi-phase improvement to how captured pages preserve their original web fonts. Extends [epic-8-followups §3.1](./epic-8-followups.md#31--google-fonts--external-font-face-missing-high-impact) (CDN `<link>` allowlist, shipped 2026-04-25) by covering the cases the allowlist doesn't reach.
 

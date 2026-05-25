@@ -60,9 +60,19 @@ captured root being re-parented under GrapesJS' light-theme default body.
 
 ### en.wikipedia.org/wiki/Love (post-v0.3.5 + 8MB cap)
 
-Pipeline at measurement time: v0.3.5 + dedup hoist (`124c6f3`) +
-multi-column properties (`eacfb6d`). Diff tool with walk-alignment fix
+Pipeline at first measurement (2026-05-23): v0.3.5 + dedup hoist (`124c6f3`)
++ multi-column properties (`eacfb6d`). Diff tool with walk-alignment fix
 (`bbd7da3`) and ε-tolerance (`39e8bae`).
+
+The pipeline evolved through 2026-05-24 — the row below records the
+2026-05-23 numbers as a frozen baseline. Post-2026-05-24 pipeline also
+includes T1/L1/vertical-align properties (`8ad1c58` + initial-value skip
+`af78be4`), stylable widening on built-in component types (`7714eb8`),
+and the `add_css_rules` bridge tool with chunking (`9c99089` + `de26fbf`)
+that finally lands author + dedup CSS in the canvas. The visible win:
+Wikipedia anchor elements now resolve to their captured `display: flex`
+instead of the prior `inline` fallback. Per-element sampled mismatches
+should re-measure lower than 104 once a clean same-skin run is available.
 
 | Metric | Source | Captured | Delta |
 |---|---|---|---|
@@ -94,19 +104,33 @@ multi-column properties (`eacfb6d`). Diff tool with walk-alignment fix
 | Sampled mismatches | 102 | 104 | effectively even — Wikipedia is ~4× larger but drift rate per property is similar |
 | UID pairing | 100% | 100% | unchanged |
 
-**Diagnostic:** of the 8 remaining `display` mismatches, 7 are `<A>` elements
+**Diagnostic:** of the 8 remaining `display` mismatches, 7 were `<A>` elements
 losing `display: flex` → `display: inline` after the capture lands in the
-canvas. Hypothesis: dedup-class cascade losing to a higher-specificity
-author-CSS rule, or GrapesJS' default anchor-element styling overriding
-our class. Next step is to inspect one of these anchors in the canvas
-DevTools to confirm the mechanism, then either bump dedup-class specificity
-(extra class? `!important`?) or exclude `display` from dedup hoists.
+canvas. Initial hypothesis was a cascade fight; canvas DevTools inspection
+revealed the actual cause was **GrapesJS' `parseHtml` silently stripping
+`<style>` elements during import** — dedup-class rules never reached the
+canvas at all (0 of 1,949 iframe stylesheets contained any `_djh*` rule).
+
+**Resolved 2026-05-24** via the `add_css_rules` bridge tool (`9c99089`) +
+chunking (`de26fbf`): CSS now routes through `editor.Css.addRules` directly,
+bypassing parseHtml. Verified live: 100 `_djh*` rules + 233
+`.mw-parser-output` rules land in the canvas iframe; `<a>._djh1` computed
+display is `flex`. See [ADR-0011 2026-05-24 addendum](./adr/0011-browser-extension-architecture.md#addendum-2026-05-24--css-routing-via-the-add_css_rules-bridge-tool).
 
 **Earlier measurement (pre-`bbd7da3`)** reported 399 sampled mismatches with
 33 in `display`. Those numbers were a diff-script artefact: source-side and
 captured-side walks diverged (source started at `body`, missed scroll-settle,
 didn't drop `<head>`), so 78% of paired UIDs compared the wrong elements.
 The 104/8 figures above are the first numbers measured after that fix.
+
+**Capture-diff caveat — Wikipedia skin variants.** Subsequent diff runs
+showed `[ALIGNMENT BUG] N of M paired UIDs have mismatched tags` because
+Wikipedia serves the diff-script's logged-out Playwright session a
+different Vector skin variant than the user's browser sees during capture
+(`<CENTER>` / `class="floatleft"` legacy vs `vector-sticky-pinned-container`
+2022). Workaround: append `?useskin=vector-2022` to the URL when running
+`capture-diff`. Alignment is sensitive to "same URL, same skin, same
+session" — a known limitation of comparing live pages against captures.
 
 ### Other fixtures — still TODO
 

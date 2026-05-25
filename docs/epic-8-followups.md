@@ -4,7 +4,7 @@ Operational working doc for the v0.3 Chrome extension. Strategic direction for v
 
 ---
 
-## Status (as of 2026-05-23)
+## Status (as of 2026-05-24)
 
 **v0.3 — shipped.** Three PRD stories (element selection, style serialization, send-to-canvas) functionally complete. See §1.
 
@@ -32,14 +32,27 @@ Operational working doc for the v0.3 Chrome extension. Strategic direction for v
 | `vertical-align` non-inherited property | 2026-05-23 | `8ad1c58` |
 | Initial-value skip for table/list/vertical-align defaults (fixes the 8MB overflow the bare T1+L1 caused) | 2026-05-23 | `af78be4` |
 | **OBS** Reworded "Selection too large" error for whole-page captures | 2026-05-23 | `cb84a7e` |
+| Emit `<style data-designjs-*>` blocks outside the captured wrapper (D1 groundwork; load-bearing once add_css_rules landed) | 2026-05-24 | `c4248f3` |
+| **Canvas** Widen `stylable` allowlist on built-in component types (wrapper width/height/etc. now survive import) | 2026-05-24 | `7714eb8` |
+| **Bridge** `add_css_rules` tool routes captured CSS through `editor.Css.addRules`, bypassing parseHtml stripping (full vertical slice: schema + handler + extension extraction + relayCapture dispatch) | 2026-05-24 | `9c99089` |
+| **Canvas** Chunk `add_css_rules` cssText at rule boundaries (bounds GrapesJS' "single bad rule → 0 rules" parser failure to one chunk; 549KB → 2,395 rules) | 2026-05-24 | `de26fbf` |
+| `add_components` per-call timeout bump 90s → 180s (until Q1 chunked add_components lands) | 2026-05-24 | `377cbf1` |
+| **Extract-styles helper** — pulled style-block stripping out of `content/index.tsx` into a testable module + 6 unit tests covering the serializer↔bridge boundary | 2026-05-24 | `39e45cd` |
+| **D1 fully resolved** — `<a>` `flex → inline` mismatches eliminated. Chain: `c4248f3` (style outside wrapper) → `9c99089` (add_css_rules tool) → `de26fbf` (chunking). Verified live: 100 `_djh*` rules + 233 `.mw-parser-output` rules now land in canvas, `<a>._djh1` computed display = `flex`. | 2026-05-24 | chain |
+| **ADR-0011 addendum** — documents the CSS-routing pivot, the parseHtml strip-on-import discovery, and the measured outcome | 2026-05-24 | `297f13f` |
+| **README** updated with Chrome-extension install + use docs, `add_css_rules` tool reference, v0.3 capture roadmap status | 2026-05-24 | `a055e25` |
 
-**Still open — fidelity gaps surfaced by the Wikipedia Love multi-page baseline.** ROI-ranked in §9 below; this list groups by owner doc.
+**Still open** — ROI-ranked in §9 below; this list groups by owner doc.
 
 | ID | Item | Where tracked |
 |----|------|---------|
-| F1–F3 | Font preservation (Google Fonts fallback, binary inlining, local fonts) | [font-preservation-plan.md](./font-preservation-plan.md) |
-| T1, L1, C1, D1, OBS | Table / list / clip-path properties; `display` drift; "smaller section" wording | §9 below |
-| Q1 | `add_components` 90s flakiness — needs streaming + canvas profiling | §9 below |
+| F1 | Google Fonts name fallback — Phase 1 of font-preservation | WIP parked on `f1-google-fonts-fallback` branch (commit `5c2a58b`); [font-preservation-plan.md](./font-preservation-plan.md) |
+| F2–F3 | Font binary inlining, local desktop fonts | [font-preservation-plan.md](./font-preservation-plan.md) |
+| C1 | CSS clip-path / mask properties | §9 Tier 2 |
+| Q1 | Chunked `add_components` — eliminates 180s timeout race on Wikipedia-class captures | §9 Tier 2 (timeout bumped 90→180s as interim band-aid) |
+| Q2 | Delete-artboard slowness on large captures | §9 Tier 2 (filed 2026-05-24) |
+| Q3 | Body-height inflation (Wikipedia 33,041px vs source 23,108px) after author CSS now applies | §9 Tier 2 (filed 2026-05-24) |
+| GrapesJS doc PR | Upstream `Document stylable behavior on HTML import` | Drafts ready (issue body + PR body + Components.md content); not yet filed |
 | P1–P3 | Pseudo-elements, Shadow DOM, hotlinked images | Deferred to v0.4 CDP per ADR-0012 §2 |
 | §3.2 | CSS custom properties verification | Open (no fix unless drift surfaces) |
 | B1 | Multi-page baseline still missing MDN, Tailwind, Bootstrap, rubychilds.com | [capture-fidelity-baseline.md](./capture-fidelity-baseline.md) |
@@ -269,17 +282,17 @@ focused day = `S`, two-three days = `M`, week or more = `L`.
 | **OBS** | "Selection too large" error reworded for whole-page captures | Trivial UX correctness. | XS | ✅ Shipped `cb84a7e` |
 | **D0** (NEW) | capture-diff walk alignment — source-side and captured-side walks diverged; 78% of Wikipedia "drift" was diff-tool noise | All future fidelity measurements depend on this | S | ✅ Shipped `bbd7da3` |
 | **DEDUP-VERIFY** | Run `capture-diff` post-dedup on Wikipedia Love | Settle whether `124c6f3` is pulling weight. | XS | ✅ Verified — 15,508 → 841 CSS rules (18× reduction) |
-| **F1** | Google Fonts name fallback ([font-preservation-plan.md](./font-preservation-plan.md) Phase 1) | Closes the font-family mismatches on non-CDN-served Google Fonts. Specced. | M | ⏳ In progress |
-| **D1** | The 7 `<a>` `flex → inline` mismatches — clean signal post-D0 | Real fidelity bug, root cause unclear (cascade fight hypothesis) | S | ⏳ In progress |
-| **GrapesJS doc PR** | Upstream PR documenting the wrapper-`stylable` workaround for HTML import | Easy goodwill, builds community presence before harder upstream PRs | S | ⏳ In progress (style guide collected) |
+| **F1** | Google Fonts name fallback ([font-preservation-plan.md](./font-preservation-plan.md) Phase 1) | Closes the font-family mismatches on non-CDN-served Google Fonts. Specced. | M | ⏳ WIP on `f1-google-fonts-fallback` branch (commit `5c2a58b`) — needs tests + e2e verification + merge |
+| **D1** | The 7 `<a>` `flex → inline` mismatches — clean signal post-D0 | Real fidelity bug. Root cause: GrapesJS' parseHtml silently strips `<style>` blocks on import, so dedup-class CSS never reached the canvas. | S | ✅ Shipped — chain: `c4248f3` (move blocks outside wrapper) → `7714eb8` (stylable widening) → `9c99089` (add_css_rules tool) → `de26fbf` (chunking). Verified: 100 `_djh*` + 233 `.mw-parser-output` rules now land; `<a>._djh1` computed display = `flex`. |
+| **GrapesJS doc PR** | Upstream PR documenting the wrapper-`stylable` workaround for HTML import | Easy goodwill, builds community presence before harder upstream PRs | S | ⏳ Drafts ready (issue body + PR body + Components.md content); not yet filed |
 
 ### Tier 2 — medium-ROI, medium effort
 
 | ID | Gap | Why | Effort | Risk |
 |----|-----|-----|-------:|-----:|
 | **C1** | CSS clipping (`clip-path`, `clip-rule`, `mask`, `mask-image`, `mask-mode`, `mask-position`, `mask-size`) | Modern marketing sites with clipped UI; SingleFile / Onlook both ignore these. Capturing them is a competitive edge. | S-M | low |
-| **D1** | Investigate `display` drift on Wikipedia (33 mismatches). Hypotheses: `display:contents`, `display:list-item`, `display:table-cell`. Diff the 33 mismatched elements to identify the pattern. | We don't know yet what's wrong. Investigation, not fix. | S (diff + write-up) | none |
-| **Q1** | Chunked `add_components` — split large captures into N batches the canvas renders incrementally. Removes the 90s timeout race + gives real progress UX on canvas side. | The flaky "second-try lands" pattern on Wikipedia is the biggest current UX bruise. Bumping the timeout is a band-aid. | M-L | medium — bridge + content + canvas all touch |
+| ~~**D1**~~ | ~~Investigate `display` drift on Wikipedia~~ | ✅ Resolved — root cause was GrapesJS' parseHtml stripping `<style>` blocks; fixed via the add_css_rules path. See Tier 1 D1 row. | — | — |
+| **Q1** | Chunked `add_components` — split large captures into N batches the canvas renders incrementally. Removes the 180s timeout race + gives real progress UX on canvas side. | The flaky "second-try lands" pattern on Wikipedia is the biggest current UX bruise. The 90→180s timeout bump (`377cbf1`) is a band-aid; this is the structural fix. | M-L | medium — bridge + content + canvas all touch |
 | **F2** | Font binary download + base64-inline ([font-preservation-plan.md](./font-preservation-plan.md) Phase 2). | Closes the non-CDN font case (Wikipedia's `"GT Flexa Standard"`, `"NB International Pro"`). Needs new `host_permissions`. | M | medium — MV3 service-worker fetch, permission gate |
 | **B1** | Capture MDN, Tailwind landing, Bootstrap demo, rubychilds.com → fill the 5-page fixture per the original plan. | Validates fidelity beyond Wikipedia. Cheap in code, costs user time per capture. | S (per page) | none |
 | **I1** | Inspector unit tests (PositionSection, Layout, Fill/Stroke, Typography). | Test-coverage gap from Wave 1; unrelated to fidelity but flagged here for completeness. | M | low |
@@ -301,17 +314,23 @@ Tracked in ADR-0012 §2; not actionable until the CDP pivot.
 
 ### Recommended sprint sequencing
 
-If we're optimizing for **closing the Wikipedia drift**:
-1. **DEDUP-VERIFY** (5 min) → either keep dedup or revert before further work
-2. **T1 + L1** (one PR, ~half a day) — same shape as multi-column fix
-3. **F1** (Google Fonts fallback, ~2 days) — biggest single-source-of-mismatches fix
-4. **D1 investigation** → then a Tier 1 follow-up on whatever it surfaces
+The original Tier-1 stack (T1, L1, OBS, D0, DEDUP-VERIFY, D1, GrapesJS doc PR — drafts) is **substantially closed out as of 2026-05-24**. What remains, in priority order:
 
 If we're optimizing for **shipping Chrome Web Store v0.3 public**:
-1. **DEDUP-VERIFY** → revert if not helping
-2. **OBS** (reword) — minor polish
-3. **Q1** (chunked add_components) — eliminates the timeout flake that would burn first impressions
-4. **O1** (submit to Web Store)
+1. **Q1** chunked `add_components` — eliminates the timeout flake (current band-aid: 180s)
+2. **Q2** delete-artboard slowness — workflow blocker for iteration
+3. **GrapesJS doc PR** filed upstream — drafts ready (in chat session)
+4. **O1** submit to Web Store
+
+If we're optimizing for **further closing fidelity drift**:
+1. **F1** Google Fonts fallback — already WIP on `f1-google-fonts-fallback` branch; needs tests + e2e verification + merge
+2. **Q3** body-height inflation investigation — author CSS + body→div interaction
+3. **B1** capture MDN / Tailwind / Bootstrap / rubychilds.com to fill the 5-page fixture
+4. **C1** clip-path / mask properties
+
+Bigger architectural work (post-Tier-2):
+- ADR-0012 §§2–4 CDP pivot for shadow DOM / cross-origin / authed content
+- GrapesJS `@designjs/grapesjs-fidelity-import` plugin per ADR-0012 2026-05-23 addendum
 
 ### Comparative tool learnings (where they informed this list)
 

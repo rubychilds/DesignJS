@@ -20,10 +20,10 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.2",
-    "@babel/preset-env": "^7.20.2",
-    "@babel/preset-react": "^7.22.15",
-    "@babel/preset-typescript": "^7.22.5",
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/chrome": "^0.1.30",
     "@types/react": "^18.3.0",
@@ -39,7 +39,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
     "vitest": "^1.0.0",
-    "webpack": "^5.75.0",
+    "webpack": "^5.107.2",
     "webpack-cli": "^5.0.1"
   }
 }

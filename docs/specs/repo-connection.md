@@ -57,12 +57,17 @@ The same workspace can host multiple DesignJS projects of any type — see [proj
 
 **(1) GitHub OAuth (PKCE, browser-only) — v1**
 
-- Browser generates `code_verifier` + `code_challenge`
-- Redirect to GitHub OAuth authorize URL
+- Browser generates `code_verifier` + `code_challenge` + a cryptographically random `state` parameter (32 bytes, hex-encoded via `crypto.getRandomValues`)
+- The `code_verifier` and `state` are written to `sessionStorage` before the redirect (NOT `localStorage` — `localStorage` survives tab close and is shared across tabs of the same origin, which is the wrong lifetime for a single-flight OAuth handshake)
+- Only the `code_challenge` (SHA-256 of the verifier) and the `state` are placed on the authorize URL; the `code_verifier` itself never leaves the browser
+- Redirect to GitHub OAuth authorize URL (with `state`, `code_challenge`, `code_challenge_method=S256`)
 - Callback returns to the local dev server's `/oauth/github/callback` route (or `designjs://oauth/github` for a future desktop wrapper)
+- On callback, the canvas reads `state` from the URL query params and asserts it matches the value previously stored in `sessionStorage`; mismatch (or missing `state` on the callback URL) aborts the flow with a clear `"OAuth state mismatch — possible CSRF attempt"` error and the `code_verifier` is discarded
 - Exchange `code + code_verifier` → access token directly from browser (no client secret needed with PKCE)
 - Token stored in `~/.designjs/secrets.json` (mode `0o600`) under `providers.github.token`
 - Scope: `repo` (broad — per-repo restrictions require a GitHub App with backend, deferred to cloud tier)
+
+> **Security note — why `state` matters even with PKCE:** PKCE protects the *token exchange* step (an attacker who intercepts the `code` can't redeem it without the `code_verifier`). It does NOT protect against a malicious site triggering an authorize redirect with their own callback URL embedded and tricking the user's browser into completing a flow that links the attacker's GitHub account into DesignJS. The `state` parameter is the CSRF token that binds the callback to the same browser session that started the flow. See [RFC 6749 §10.12](https://datatracker.ietf.org/doc/html/rfc6749#section-10.12). Tracked alongside the broader Track B security review in [docs/architecture/architecture-security.md § 8.2](../architecture/architecture-security.md) (F.59).
 
 **(2) Local folder (File System Access API) — v1**
 

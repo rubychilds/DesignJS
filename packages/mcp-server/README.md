@@ -1,30 +1,30 @@
 # @designjs/mcp-server
 
-The stdio [Model Context Protocol](https://modelcontextprotocol.io/) server for [DesignJS](https://github.com/rubychilds/DesignJS) — an open-source MCP design canvas that gives AI coding agents eyes on a live HTML/CSS canvas.
+Stdio [Model Context Protocol](https://modelcontextprotocol.io/) server that connects AI coding agents (Claude Code, Cursor, Codex, any MCP-compatible client) to the live [DesignJS](https://github.com/rubychilds/DesignJS) HTML/CSS canvas.
 
-Register this server with Claude Code, Cursor, or any MCP-compatible client and the agent can:
+You almost never install this — agents spawn it on demand via `npx -y @designjs/mcp-server`.
 
-- Read the canvas — component tree, HTML, CSS, screenshots, current selection
-- Write to the canvas — insert components, update styles, delete nodes, add Tailwind classes, set text
-- Manage artboards — create, list, resize, fit-to-content, find non-overlapping placements
-- Export — get JSX (Tailwind or inline-style mode), persist design tokens
+## What it does
 
-## Quickstart
+The server is a thin stdio ↔ WebSocket translator:
 
-```bash
-# 1. Start the canvas locally (needs the DesignJS app running)
-git clone https://github.com/rubychilds/DesignJS.git
-cd DesignJS && pnpm install && pnpm dev
-
-# 2. Register the MCP server in your project
-cd ~/your-project
-npx @designjs/cli init         # writes .mcp.json / .cursor/mcp.json / .vscode/mcp.json
-
-# 3. Open your agent and start prompting
-#    "Create a Desktop artboard, add a pricing section with 3 tier cards"
+```
+agent (stdio, JSON-RPC) ─▶ @designjs/mcp-server ─▶ WebSocket (127.0.0.1:29170) ─▶ DesignJS canvas
 ```
 
-The `init` command writes a config pointing at `npx -y @designjs/mcp-server`. If you'd rather configure manually, add this to your `.mcp.json`:
+1. The agent dispatches an MCP tool call over stdio
+2. The server validates `params` against the tool's Zod schema (shared with the canvas via [`@designjs/bridge`](https://www.npmjs.com/package/@designjs/bridge))
+3. It forwards the call over the local WebSocket bridge
+4. The browser-side handler runs against the GrapesJS editor and replies
+5. The server returns the result to the agent
+
+No design state is held in the server. The canvas is the single source of truth.
+
+## Usage
+
+Make sure the DesignJS canvas is running locally (`pnpm dev` in the [repo root](https://github.com/rubychilds/DesignJS) — listens on `http://localhost:3000`, WebSocket bridge on `127.0.0.1:29170`).
+
+Then register the server in your project's `.mcp.json`:
 
 ```json
 {
@@ -37,28 +37,46 @@ The `init` command writes a config pointing at `npx -y @designjs/mcp-server`. If
 }
 ```
 
-## Tool reference
+Open your agent in the project directory:
 
-Full per-tool docs with input/output schemas and example prompts live at [designjs.dev/mcp](https://github.com/rubychilds/DesignJS-docs). Twenty tools across five categories:
-
-- **Read:** `get_tree` · `get_html` · `get_css` · `get_screenshot` · `get_selection` · `list_artboards` · `get_variables` · `ping`
-- **Write (components):** `add_components` · `update_styles` · `add_classes` · `remove_classes` · `set_text` · `delete_nodes`
-- **Write (artboards):** `create_artboard` · `find_placement` · `fit_artboard`
-- **Selection:** `select` · `deselect`
-- **Tokens + export:** `set_variables` · `get_jsx`
-
-## How it connects
-
-```
-┌───────────┐    stdio     ┌───────────────────┐    WebSocket    ┌──────────────┐
-│ Agent     │──(JSON-RPC)─▶│ @designjs/       │◄──(bridge)─────▶│ DesignJS   │
-│ (Claude,  │              │ mcp-server         │   127.0.0.1:    │ canvas app   │
-│  Cursor)  │              │ (this package)     │    29170        │ (pnpm dev)   │
-└───────────┘              └───────────────────┘                 └──────────────┘
+```bash
+claude          # Claude Code — picks up .mcp.json automatically
+# or
+cursor .
+# or
+code .
 ```
 
-The MCP server is a thin translator: MCP requests in, bridge WebSocket messages out, canvas acknowledgements back, MCP responses out. Schemas are shared with `@designjs/bridge`.
+On the first tool call the agent runs `npx -y @designjs/mcp-server` and the bridge dot in the canvas Topbar flips to green.
+
+A faster path for new projects: `npm create designjs@latest my-app` ([`create-designjs`](https://www.npmjs.com/package/create-designjs)) drops a ready-to-use `.mcp.json` and `CLAUDE.md`.
+
+## Tools exposed
+
+22 bidirectional tools across **inspect**, **mutate**, and **artboards** — full list with descriptions, input/output schemas, and example prompts is in the [repo root README](https://github.com/rubychilds/DesignJS#mcp-tools). The authoritative count is `Object.keys(TOOL_SCHEMAS).length` from [`@designjs/bridge`](https://www.npmjs.com/package/@designjs/bridge); the server auto-registers everything declared there, so the published tool surface and the schemas can't drift.
+
+Categories at a glance:
+
+- **Inspect** — `ping`, `get_tree`, `get_html`, `get_css`, `get_jsx`, `get_screenshot`, `get_selection`, `get_variables`
+- **Mutate** — `add_components`, `add_css_rules`, `update_styles`, `add_classes`, `remove_classes`, `set_text`, `set_variables`, `delete_nodes`, `select`, `deselect`
+- **Artboards** — `create_artboard`, `list_artboards`, `find_placement`, `fit_artboard`
+
+## Binary
+
+Installs a `designjs-mcp` bin. Most users never invoke it directly — the MCP client manages the lifecycle. For local debugging of the stdio protocol, you can run:
+
+```bash
+npx -y @designjs/mcp-server
+```
+
+and pipe JSON-RPC frames on stdin.
+
+## See also
+
+- Repo root: [DesignJS](https://github.com/rubychilds/DesignJS) — architecture, quickstart, comparison table, MCP tool reference
+- [`@designjs/bridge`](https://www.npmjs.com/package/@designjs/bridge) — shared schemas and protocol constants
+- [`create-designjs`](https://www.npmjs.com/package/create-designjs) — scaffolder that wires this server into a fresh project
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) (or the LICENSE in the repo root).

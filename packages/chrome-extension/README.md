@@ -1,35 +1,22 @@
-# `@designjs/chrome-extension`
+# @designjs/chrome-extension
 
-DesignJS Chrome extension — capture any element from any webpage and drop it onto the DesignJS canvas as editable HTML.
+MV3 Chrome extension — capture any web page or DOM subtree and drop it onto the running [DesignJS](https://github.com/rubychilds/DesignJS) canvas as **real, editable HTML/CSS**. Private workspace package — not published to the Chrome Web Store yet; load unpacked from `dist/`.
 
-Implements PRD Epic 8 (Browser extension, site capture) per [ADR-0011](../../docs/adr/0011-browser-extension-architecture.md).
+The content script walks the DOM, serializes computed styles + author CSS, hoists shared classes, takes a stitched screenshot for a backplate, and ships everything over the local WebSocket bridge into a fresh artboard on the canvas. See the [repo root README](https://github.com/rubychilds/DesignJS#capture-web-pages-with-the-chrome-extension) for the full capture pipeline (and known limitations).
 
-> **Status:** v0.3 scaffold. Stripped from an earlier (Orbis CRM) extension; DesignJS-specific modules under `src/capture/`, `src/transport/`, `src/popup/`, `src/content/capture.ts` are scaffolded stubs with implementation TODOs.
-
-## What it does
-
-1. User clicks the extension icon on any page
-2. Hover overlay lights up; keyboard navigates the DOM tree (↑↓←→ parent/child/sibling; Enter to capture; Esc to exit)
-3. On capture, the selected subtree is serialized to HTML with inlined computed styles (hybrid inline + inherited-diff per ADR-0011 §2)
-4. Extension's background worker sends the HTML over WebSocket to the running DesignJS canvas (`ws://127.0.0.1:29170/designjs-bridge`)
-5. Canvas renders it into the active artboard via the existing `add_components` bridge handler
-
-## Prerequisites
-
-- DesignJS canvas running locally: `pnpm dev` in the DesignJS repo (starts the Vite dev server + WebSocket bridge on port 29170)
-- Chrome or Chromium-based browser with Developer Mode enabled
-
-## Dev setup
+## Install (load unpacked)
 
 ```bash
-pnpm install
-pnpm --filter @designjs/chrome-extension build
+pnpm install                                       # from repo root
+pnpm --filter @designjs/chrome-extension build     # builds dist/
 ```
 
-Load `packages/chrome-extension/dist/` as an unpacked extension in Chrome:
-1. `chrome://extensions`
-2. Enable "Developer mode" (top right)
-3. "Load unpacked" → pick `packages/chrome-extension/dist`
+In Chrome:
+
+1. Open `chrome://extensions`
+2. Toggle **Developer mode** on (top right)
+3. Click **Load unpacked** and select `packages/chrome-extension/dist/`
+4. Pin the DesignJS icon to the toolbar
 
 For hot rebuild while developing:
 
@@ -37,36 +24,27 @@ For hot rebuild while developing:
 pnpm --filter @designjs/chrome-extension dev
 ```
 
+Reload via the circular **reload** arrow on the DesignJS card in `chrome://extensions` whenever the source changes.
+
 ## Source layout
 
 ```
 src/
-├── background/
-│   └── index.ts           # Service worker — owns the WS bridge connection
-├── capture/
-│   ├── dom-walker.ts      # Keyboard-driven element selection UI (Story 8.1)
-│   └── style-serializer.ts # Computed-style serializer w/ payload watchdog (Story 8.2)
-├── content/
-│   └── capture.ts         # Content-script entry — wires walker + serializer
-├── popup/
-│   ├── index.tsx          # Minimal React popup
-│   └── popup.html
-├── transport/
-│   └── ws-client.ts       # WebSocket peer for the DesignJS bridge (Story 8.3)
-├── utils/
-│   ├── chrome-promise.ts  # Promise wrappers for callback-based Chrome APIs
-│   └── timeout.ts         # Generic timeout utility
-└── test/
-    └── setup.ts           # jsdom test setup
+├── background/   # Service worker — owns the WS bridge connection
+├── capture/      # DOM walker + computed-style serializer
+├── content/      # Content-script entry — overlay UI + capture orchestration
+├── popup/        # Minimal React popup
+├── transport/    # WebSocket peer for the DesignJS bridge
+└── utils/        # Chrome API promise wrappers + timeout helpers
 ```
 
-## Testing
+## Architecture
 
-```bash
-pnpm --filter @designjs/chrome-extension test
-```
+The decisions that shaped this package — direct WebSocket transport, hybrid inline/inherited-diff style serialization, content-script overlay (not a browser-action popup), `add_css_rules` bridge tool for author CSS, hybrid screenshot backplate — are recorded in:
 
-Tests use Vitest + jsdom. Run `test:watch` for TDD.
+- [ADR-0011 — Browser extension architecture](../../docs/adr/0011-browser-extension-architecture.md) (transport + style serialization + 2026-05-24 CSS routing pivot addendum)
+- [ADR-0012 — Capture fidelity evolution](../../docs/adr/0012-capture-fidelity-evolution.md) (screenshot backplate, CDP pivot, future direction)
+- [`docs/epic-8-followups.md`](../../docs/epic-8-followups.md) (operational state, open followups)
 
 ## Packaging
 
@@ -74,10 +52,8 @@ Tests use Vitest + jsdom. Run `test:watch` for TDD.
 pnpm --filter @designjs/chrome-extension package
 ```
 
-Produces `designjs-extension.zip` at the package root, ready for Chrome Web Store submission.
+Produces `designjs-extension.zip` at the package root, ready for a Chrome Web Store submission (planned for v0.3 public).
 
-## See also
+## License
 
-- [ADR-0011 — Browser extension architecture](../../docs/adr/0011-browser-extension-architecture.md) (transport + style-serialization decisions)
-- [ADR-0001 — WebSocket bridge on 127.0.0.1:29170](../../docs/adr/0001-frontend-ui-stack.md)
-- PRD Epic 8 (Stories 8.1, 8.2, 8.3) in the product docs
+MIT — see [LICENSE](LICENSE) (or the LICENSE in the repo root).

@@ -4,6 +4,9 @@
   "description": "stdio Model Context Protocol (MCP) server for DesignJS — lets Claude Code, Cursor, and any MCP-compatible agent read and write a live HTML/CSS design canvas.",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "bin": {
     "designjs-mcp": "dist/index.js"
   },
@@ -15,6 +18,7 @@
     "build": "tsc -b",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings 0",
     "prepublishOnly": "tsc -b"
   },
   "dependencies": {

@@ -8,6 +8,7 @@
 - [ ] `pnpm test` passes (unit)
 - [ ] `pnpm test:e2e` passes (if canvas / bridge / extension touched)
 - [ ] Manually verified in the app (if user-facing)
+- [ ] CHANGELOG.md updated if user-facing
 
 ## Notes for reviewers
 

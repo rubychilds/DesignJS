@@ -27,8 +27,9 @@ In scope:
 Out of scope:
 
 - Vendored / reference projects checked into the repo root for research
-  (`SingleFile/`, `Blipshot/`, `onlook/`, `penpot/`, `flux/`, etc.) — report
-  upstream.
+  (`SingleFile/`, `Blipshot/`, `onlook/`, `penpot/`, `flux/`,
+  `chrome-devtools-mcp/`, `screenshot-capture/`, `design.md/`, etc.) —
+  report upstream.
 - Vulnerabilities that require an attacker to already control the user's
   machine (the bridge binds to `127.0.0.1` by design).
 

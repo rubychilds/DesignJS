@@ -73,7 +73,7 @@ body:
     attributes:
       label: Roadmap fit
       options:
-        - v0.1 (existing 9 tools)
-        - v0.2 (artboards, codegen, tokens, paste)
-        - v0.3 (browser extension, multi-agent, IDE)
-        - Speculative / future
+        - v0.1 (shipped — 22 tools)
+        - v0.2 (chat panel, repo connection, multi-project gallery)
+        - v0.3 (sandbox preview, SWARM, chrome extension Web Store)
+        - v0.4+ / Speculative

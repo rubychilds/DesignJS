@@ -51,10 +51,43 @@ interface MockComponentOpts {
 }
 
 /**
+ * Minimal Component shape consumed by handlers.ts. Declared explicitly here
+ * (rather than inferred via `ReturnType<typeof makeComponent>`) so the
+ * `children: MockComponent[]` field doesn't introduce a circular type
+ * reference. Method fields use plain callable signatures — the runtime
+ * vi.fn() satisfies them via structural typing, and Vitest's
+ * `toHaveBeenCalledWith` / `.mock.calls` work off the Mock's runtime
+ * state regardless of how the field is typed.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyFn = (...args: any[]) => any;
+interface MockComponent {
+  __id: string;
+  children: MockComponent[];
+  fields: Record<string, unknown>;
+  styles: Record<string, string>;
+  getId: AnyFn;
+  get: AnyFn;
+  set: AnyFn;
+  getAttributes: AnyFn;
+  addAttributes: AnyFn;
+  getClasses: AnyFn;
+  getStyle: AnyFn;
+  addStyle: AnyFn;
+  addClass: AnyFn;
+  removeClass: AnyFn;
+  components: AnyFn;
+  append: AnyFn;
+  empty: AnyFn;
+  toHTML: AnyFn;
+  remove: AnyFn;
+}
+
+/**
  * Minimal Component shape consumed by handlers.ts. Children are real nested
  * MockComponents so `findById` actually walks the tree.
  */
-function makeComponent(opts: MockComponentOpts = {}) {
+function makeComponent(opts: MockComponentOpts = {}): MockComponent {
   const id = opts.id ?? nextId();
   const attributes: Record<string, string> = { ...(opts.attributes ?? {}) };
   const classes: string[] = [...(opts.classes ?? [])];
@@ -118,7 +151,6 @@ function makeComponent(opts: MockComponentOpts = {}) {
   };
   return component;
 }
-type MockComponent = ReturnType<typeof makeComponent>;
 // Loose Component alias so vi.fn signatures don't drown the file in casts.
 type Component = MockComponent;
 
@@ -188,7 +220,7 @@ function makeEditor(opts: MakeEditorOpts = {}) {
     else if (Array.isArray(c)) selected = [...c];
     else selected = [c];
   });
-  const addComponents = vi.fn((html: string) => {
+  const addComponents = vi.fn((_html: string) => {
     const child = makeComponent({ tagName: "div" });
     if (opts.rootWrapper) opts.rootWrapper.children.push(child);
     return [child];

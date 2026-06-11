@@ -104,26 +104,25 @@ Markers: `[done — <sha>]` (committed); `[pre-existing]` (already done); `[defe
 
 Larger refactors or coordinated work. Each takes a day to a week. Should land before v0.2 chat panel ships.
 
-**Progress as of 2026-06-10 (updated after first Tier 2 batch)** on the `hygiene-pass` branch:
+**Progress as of 2026-06-11 (updated after the F.06/F.14/F.18/F.85 batch)** on the `hygiene-pass` branch:
 
 | Status | Count | Findings |
 |---|---|---|
-| `[done]` | 7 | F.11 + F.88 (per-package READMEs, db122e1); F.40 + F.98 (doc-drift checker, d2d5c51); F.59 (OAuth `state` validation, 6770d3e); F.60 (sandbox postMessage origin checks, 6770d3e); F.61 (SECURITY.md v0.2 gaps, 6770d3e); F.77 (.env.example + Zod env validation, d2d5c51) |
-| `[in-flight]` (subagent drafting) | 3 | F.51 (ADR-0015 — bridge protocol v2: auth + versioning + capabilities); F.76 (ADR-0013 — cloud tier on Supabase); F.58 (ADR-0017 — secrets module at `~/.designjs/secrets.json`) — drafted as **Proposed** ADRs, not yet implemented. 2 of 3 ADR files have landed in the working tree (0013, 0015); 0017 is in progress. |
-| `[partial]` (covered by ADRs) | 3 | F.07 (protocol versioning lands in ADR-0015's Phase 1); F.52 (persistence middleware token lands with ADR-0015); F.54 (capability scoping lands in ADR-0015 Phase 2) |
-
-The "partial" items are captured by the ADR-0015 design but require implementation work to fully close. They flip from `[partial]` to `[done]` when the bridge-server + bridge-client changes land.
+| `[done]` | 13 | F.06 (grapesjs type helpers, ff384fb); F.11 + F.88 (per-package READMEs, db122e1); F.14 (cross-browser Playwright + nightly, d1ba5ad); F.18 (handlers unit tests, e36a88c); F.40 + F.98 (doc-drift checker, d2d5c51); F.59 + F.60 + F.61 (spec security, 6770d3e); F.77 (.env.example + Zod env validation, d2d5c51); F.85 (perf instrumentation wrapper, 03860cf) |
+| `[in-flight]` (subagent drafting) | 3 | F.51 (ADR-0015 — bridge protocol v2: auth + versioning + capabilities); F.76 (ADR-0013 — cloud tier on Supabase); F.58 (ADR-0017 — secrets module at `~/.designjs/secrets.json`) — drafted as **Proposed** ADRs. 2 of 3 ADR files landed in working tree (0013, 0015); 0017 still pending. |
+| `[partial]` (covered by ADRs) | 3 | F.07 (protocol versioning lands in ADR-0015 Phase 1); F.52 (persistence middleware token lands with ADR-0015); F.54 (capability scoping lands in ADR-0015 Phase 2) |
+| **Closed via F.18 / F.06** | — | Plus F.18 follow-ups landed inline: addComponents frameless throw + select JSDoc (c227274). Bugs 2/4/5 deferred for focused session. |
 
 **Remaining Tier 2** (not yet started — deferred to focused follow-up work):
 
-- **Codebase:** F.06 (grapesjs type helpers), F.10 (component dir convention — defer until Track A/B merges)
-- **Testing:** F.13 (drop CI retries — pending F.21 baseline), F.14 (Firefox + WebKit nightly), F.15 (visual regression baseline), F.18 (handlers.ts unit tests with mock-editor — biggest single effort), F.22 (coverage reporting in CI)
+- **Codebase:** F.10 (component dir convention — defer until Track A/B merges)
+- **Testing:** F.13 (drop CI retries — pending F.21 baseline), F.15 (visual regression baseline), F.22 (coverage reporting in CI)
 - **CI/DX:** F.39 (Changesets adoption)
 - **Deployment:** F.66 (independent versioning — depends on F.39), F.67 + F.70 (release workflow + provenance — depends on F.39), F.71 (Chrome Web Store submission — manual external)
-- **Observability:** F.83 (Sentry, opt-in — before chat panel ships), F.85 (performance instrumentation wrapper), F.86 (privacy policy on docs site — separate `designjs-docs/` repo)
+- **Observability:** F.83 (Sentry, opt-in — before chat panel ships), F.86 (privacy policy on docs site — separate `designjs-docs/` repo)
 - **Docs:** F.95 Option C (generate MCP tool docs from `tools.ts` — partially deferred to separate repo)
 
-Adjacent fix from this session: root README's MCP tool prose count drift "21" → "22" (2 sites; F.40-adjacent), captured by the per-package README subagent and closed by the doc-drift checker script that gates against this class of drift recurring.
+Adjacent fixes from this session beyond formal Tier 2: root README MCP tool prose count drift "21" → "22" (closed by the doc-drift checker); CONTRIBUTING.md + PR template + RELEASING.md updated for new lint/format/Lefthook/cross-browser/doc-drift gates.
 
 ### Tier 3 — keep an eye on (~20 findings)
 

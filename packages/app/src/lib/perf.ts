@@ -63,12 +63,10 @@ export async function measure<T>(
   try {
     const result = await fn();
     const dur = performance.now() - t0;
-    // eslint-disable-next-line no-console
     console.log(`[designjs:perf] ${name}: ${dur.toFixed(0)}ms`);
     return result;
   } catch (err) {
     const dur = performance.now() - t0;
-    // eslint-disable-next-line no-console
     console.warn(`[designjs:perf] ${name}: ${dur.toFixed(0)}ms (error)`);
     throw err;
   }

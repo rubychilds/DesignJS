@@ -294,9 +294,17 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
         ) as Component | undefined;
         if (wrapper) parent = wrapper;
       }
-      const added = parent
-        ? parent.append(input.html)
-        : editor.addComponents(input.html);
+      // Frameless fallback used to call editor.addComponents(html), which under
+      // GrapesJS v0.22 multi-frame creates a detached component tree with no
+      // iframe mount — the agent sees a successful response but nothing
+      // actually renders. Throw a clear error so the agent knows to create_artboard
+      // first. (F.18 bug 1 from architecture review.)
+      if (!parent) {
+        throw new Error(
+          "no artboard available to receive content (canvas has no frames; call create_artboard first)",
+        );
+      }
+      const added = parent.append(input.html);
       const list = Array.isArray(added) ? added : [added];
       return { componentIds: list.filter(Boolean).map((c) => (c as Component).getId()) };
     },
@@ -474,6 +482,12 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
     select: (params) => {
       const input = SelectInput.parse(params);
       const components: Component[] = [];
+      // Resolve every id BEFORE touching the editor's selection. If any id is
+      // unknown we throw partway through the loop without calling editor.select,
+      // so the prior selection state is preserved (atomic no-partial-apply
+      // contract — F.18 bug 3 documented this; relevant when the schema accepts
+      // arrays). Agents that want partial selection should call select once per
+      // id and let the unknown-id errors surface individually.
       for (const id of input.componentIds) {
         const c = findById(editor, id);
         if (!c) throw new Error(`component not found: ${id}`);

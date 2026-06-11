@@ -575,15 +575,16 @@ describe("buildHandlers — add_components", () => {
     ).rejects.toThrow(/artboard not found/i);
   });
 
-  it("falls back to editor.addComponents when no frame exists", async () => {
-    const { editor, addComponents, trigger } = makeEditor();
+  it("throws when no frame exists (canvas needs at least one artboard)", async () => {
+    // Used to silently fall back to editor.addComponents(html) which produces
+    // a detached component tree with no iframe mount — agent sees success but
+    // nothing renders. Fixed in the F.18 bug-1 follow-up: now throws with a
+    // clear "create_artboard first" message.
+    const { editor } = makeEditor();
     const handlers = buildHandlers(editor);
-    const result = (await handlers.add_components!({ html: "<a/>" })) as {
-      componentIds: string[];
-    };
-    expect(addComponents).toHaveBeenCalledWith("<a/>");
-    expect(result.componentIds).toHaveLength(1);
-    expect(trigger).toHaveBeenCalledWith("update");
+    await expect(
+      handlers.add_components!({ html: "<a/>" })
+    ).rejects.toThrow(/no artboard available/i);
   });
 });
 

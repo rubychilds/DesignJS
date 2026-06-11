@@ -45,48 +45,59 @@ Ranked by leverage × urgency. Detailed rationale in the deep dives.
 
 The four-tier rollup. Tier-1 + Tier-2 totals are the actionable inventory; Tier-3/4 are the watch-and-strategic items.
 
-### Tier 1 — fix-this-week (35 findings)
+### Tier 1 — fix-this-week (28 findings)
 
 Small, high-leverage, low-risk changes. Each fixable in under a day, often in under an hour. Bundled into ~4-6 PRs they close most of the immediate hygiene gaps.
 
+**Progress as of 2026-06-10** (on the `hygiene-pass` feature branch):
+
+| Status | Count | What it means |
+|---|---|---|
+| `[done]` | 16 | Committed on `hygiene-pass`, commit SHA shown inline |
+| `[wt]` | 8 | Done in working tree, awaiting the final thematic commit |
+| `[pre-existing]` | 1 | Subagent verified the work was already done before this review |
+| `[deferred]` | 3 | Belongs in the separate `designjs-docs/` repo; deferred to a future session |
+
+Markers: `[done — <sha>]` (committed); `[wt]` (working tree, pending commit); `[pre-existing]` (already done); `[deferred]` (separate-repo work).
+
 **Codebase** ([`architecture-codebase.md`](./architecture-codebase.md))
-- F.04 — `create-designjs/tsconfig.json` drops `noUncheckedIndexedAccess` (1 line)
-- F.09 — Gate `window.__designjs` behind `import.meta.env.DEV` (1 line, security)
+- `[done — 797b94a]` F.04 — `create-designjs/tsconfig.json` drops `noUncheckedIndexedAccess` (1 line)
+- `[done — 1f99aca]` F.09 — Gate `window.__designjs` behind `import.meta.env.DEV` (1 line, security)
 
 **Testing** ([`architecture-testing.md`](./architecture-testing.md))
-- F.16 — Self-updating `smoke-mcp.mjs` (`Object.keys(TOOL_SCHEMAS)`)
-- F.17 — Bridge schema tests for `add_classes`/`remove_classes`/`set_text`/`select`/`deselect`
-- F.21 — Playwright JSON reporter + retry-stat script
+- `[wt]` F.16 — Self-updating `smoke-mcp.mjs` (`Object.keys(TOOL_SCHEMAS)`)
+- `[pre-existing]` F.17 — Bridge schema tests for `add_classes`/`remove_classes`/`set_text`/`select`/`deselect` — these tests already exist in `tools-artboards.test.ts`. The testing deep dive was stale on this finding.
+- `[wt]` F.21 — Playwright JSON reporter + retry-stat script
 
 **CI/DX** ([`architecture-ci-dx.md`](./architecture-ci-dx.md))
-- F.41 + F.42 + F.43 — **ESLint + Prettier + Lefthook bundle**
-- F.36 — PR template CHANGELOG prompt
-- F.45 — `.nvmrc` + `.editorconfig`
-- F.49 — Update MCP tool issue template ("v0.1 (existing 9 tools)" stale)
-- F.46 + F.47 — CodeQL + `pnpm audit` in CI
+- `[wt]` F.41 + F.42 + F.43 — **ESLint + Prettier + Lefthook bundle**
+- `[done — 797b94a]` F.36 — PR template CHANGELOG prompt
+- `[done — 797b94a]` F.45 — `.nvmrc` + `.editorconfig`
+- `[done — 797b94a]` F.49 — Update MCP tool issue template ("v0.1 (existing 9 tools)" stale)
+- `[wt]` F.46 + F.47 — CodeQL + `pnpm audit` in CI
 
 **Security** ([`architecture-security.md`](./architecture-security.md))
-- F.57 — SECURITY.md vendored-projects list completeness
+- `[done — 797b94a]` F.57 — SECURITY.md vendored-projects list completeness
 
 **Deployment** ([`architecture-deployment.md`](./architecture-deployment.md))
-- F.63 — `mcp-server` `exports` field
-- F.64 — Copy LICENSE into `packages/create-designjs/`
-- F.65 — Add `declarationMap` + `sourceMap` to `mcp-server/tsconfig.json`
-- F.68 — `scripts/check-changelog.mjs`
-- F.72 — Chrome extension build step in CI
-- F.74 — `docs.json` OG URL rebrand
+- `[done — 797b94a]` F.63 — `mcp-server` `exports` field
+- `[done — 797b94a]` F.64 — Copy LICENSE into `packages/create-designjs/`
+- `[done — 797b94a]` F.65 — Add `declarationMap` + `sourceMap` to `mcp-server/tsconfig.json`
+- `[done — 797b94a]` F.68 — `scripts/check-changelog.mjs`
+- `[wt]` F.72 — Chrome extension build step in CI
+- `[deferred]` F.74 — `docs.json` OG URL rebrand (separate `designjs-docs/` repo)
 
 **Observability** ([`architecture-observability.md`](./architecture-observability.md))
-- F.82 — React error boundary at App root
+- `[done — 1f99aca]` F.82 — React error boundary at App root
 
 **Docs** ([`architecture-docs.md`](./architecture-docs.md))
-- F.87 — README "160+ tests" stale claim
-- F.90 — ADR-0010 gap explanation (one-line note in `adr/README.md`)
-- F.92 — `docs/architecture/README.md` index (this directory's own index)
-- F.94 — 7 missing MCP tool docs on Mintlify (or defer to F.98 + F.95)
-- F.96 — `llms.txt` rebrand URLs
-- F.99 — Migrate 6 v0.2/v0.3 specs from Obsidian into `docs/specs/`
-- F.100 — README "Documentation" section linking to ADRs + this review
+- `[done — 797b94a]` F.87 — README "160+ tests" stale claim
+- `[done — 797b94a]` F.90 — ADR-0010 gap explanation (one-line note in `adr/README.md`)
+- `[done — 74aa28f]` F.92 — `docs/architecture/README.md` index (this directory's own index)
+- `[deferred]` F.94 — 7 missing MCP tool docs on Mintlify (separate `designjs-docs/` repo; or defer to F.98 + F.95)
+- `[deferred]` F.96 — `llms.txt` rebrand URLs (separate `designjs-docs/` repo)
+- `[done — 89052e0]` F.99 — Migrate 6 v0.2/v0.3 specs from Obsidian into `docs/specs/`
+- `[done — 797b94a]` F.100 — README "Documentation" section linking to ADRs + this review
 
 ### Tier 2 — fix-this-quarter (28 findings)
 

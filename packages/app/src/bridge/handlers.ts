@@ -31,6 +31,13 @@ import {
   listArtboards,
 } from "../canvas/artboards.js";
 import { chunkCss } from "../canvas/css-chunk.js";
+import {
+  classNamesOf,
+  componentsToArray,
+  getComponentField,
+  getFrameIds,
+  getFrameWrapper,
+} from "../canvas/grapesjs-types.js";
 import { htmlToJsx, mergeStylesIntoHtml } from "../canvas/jsx-export.js";
 import { getVariables, setVariables } from "../canvas/variables.js";
 import { timeTool } from "../lib/perf.js";
@@ -39,40 +46,22 @@ type ToolHandler = (params: unknown) => Promise<unknown> | unknown;
 
 function serializeComponent(component: Component, maxDepth: number, depth = 0): ComponentNodeT {
   const attrs = component.getAttributes();
-  const rawClasses = component.getClasses() as unknown as Array<string | { get: (k: string) => unknown }>;
-  const classes: string[] = rawClasses
-    .map((c) => (typeof c === "string" ? c : (c.get("name") as string | undefined)))
-    .filter((c): c is string => typeof c === "string");
-  const childComponents = component.components() as unknown as { toArray: () => Component[] };
-  const childArray: Component[] = childComponents.toArray();
+  const childArray = componentsToArray(component);
   const children = depth >= maxDepth ? [] : childArray.map((child) => serializeComponent(child, maxDepth, depth + 1));
-  const tagName = component.get("tagName") as string | undefined;
-  const type = component.get("type") as string | undefined;
+  const tagName = getComponentField<string>(component, "tagName");
+  const type = getComponentField<string>(component, "type");
+  const content = getComponentField<unknown>(component, "content");
   return {
     id: component.getId(),
     type: type ?? "default",
     tagName,
-    classes,
+    classes: classNamesOf(component),
     attributes: Object.fromEntries(
       Object.entries(attrs).map(([k, v]) => [k, String(v)]),
     ) as Record<string, string>,
-    textContent: typeof component.get("content") === "string" ? (component.get("content") as string) : undefined,
+    textContent: typeof content === "string" ? content : undefined,
     children,
   };
-}
-
-/**
- * Pull a stable string list of class names off a GrapesJS Component.
- * `component.getClasses()` returns either string[] or Selector models depending
- * on which collection it traverses, so we coerce both shapes here.
- */
-function classNamesOf(component: Component): string[] {
-  const raw = component.getClasses() as unknown as Array<
-    string | { get: (k: string) => unknown }
-  >;
-  return raw
-    .map((c) => (typeof c === "string" ? c : (c.get("name") as string | undefined)))
-    .filter((c): c is string => typeof c === "string");
 }
 
 function findById(editor: Editor, id: string): Component | undefined {
@@ -88,8 +77,7 @@ function findById(editor: Editor, id: string): Component | undefined {
     const stack: Component[] = [root];
     while (stack.length > 0) {
       const c = stack.pop()!;
-      const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-      for (const child of childArray) {
+      for (const child of componentsToArray(c)) {
         if (child.getId() === id) return child;
         stack.push(child);
       }
@@ -97,43 +85,14 @@ function findById(editor: Editor, id: string): Component | undefined {
     return undefined;
   };
   for (const frame of editor.Canvas.getFrames()) {
-    const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
-      | Component
-      | undefined;
-    const hit = search(wrapper);
+    const hit = search(getFrameWrapper(frame));
     if (hit) return hit;
   }
   return search(editor.getWrapper() ?? undefined);
 }
 
-/**
- * Returns every plausible id for a Frame: GrapesJS Backbone models carry a
- * `cid` (like "c69"), an optional model `id`, and a `getId()` method that
- * may return either. Phase B's `artboards.ts.readFrameData` reads them in
- * one order; the bridge sometimes sees a different one back. Match against
- * the union to be robust.
- */
-function frameIds(frame: Frame): string[] {
-  const ids: string[] = [];
-  const get = (frame as unknown as { getId?: () => string }).getId;
-  if (typeof get === "function") {
-    const v = get.call(frame);
-    if (typeof v === "string" && v) ids.push(v);
-  }
-  const id = (frame as unknown as { id?: unknown }).id;
-  if (typeof id === "string" && id) ids.push(id);
-  const cid = (frame as unknown as { cid?: unknown }).cid;
-  if (typeof cid === "string" && cid) ids.push(cid);
-  return ids;
-}
-
 function findFrameById(editor: Editor, id: string): Frame | undefined {
-  return editor.Canvas.getFrames().find((f) => frameIds(f).includes(id));
-}
-
-function frameWrapper(frame: Frame): Component | undefined {
-  const c = (frame as unknown as { get: (k: string) => unknown }).get("component");
-  return c as Component | undefined;
+  return editor.Canvas.getFrames().find((f) => getFrameIds(f).includes(id));
 }
 
 /**
@@ -189,7 +148,7 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       if (input.artboardId) {
         const frame = findFrameById(editor, input.artboardId);
         if (!frame) throw new Error(`artboard not found: ${input.artboardId}`);
-        wrapper = frameWrapper(frame);
+        wrapper = getFrameWrapper(frame);
         if (!wrapper) throw new Error(`artboard ${input.artboardId} has no wrapper component`);
       } else {
         wrapper = editor.getWrapper() ?? undefined;
@@ -232,7 +191,7 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
         // canvas-level accessor is the most-tested code path.
         if (!frameEl) {
           const active = (editor.Canvas as unknown as { getFrame?: () => Frame }).getFrame?.();
-          if (active && frameIds(active).includes(input.artboardId)) {
+          if (active && getFrameIds(active).includes(input.artboardId)) {
             frameEl = (editor.Canvas.getFrameEl() as HTMLIFrameElement | null) ?? undefined;
           }
         }
@@ -281,18 +240,14 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       } else if (input.artboardId) {
         const frame = findFrameById(editor, input.artboardId);
         if (!frame) throw new Error(`artboard not found: ${input.artboardId}`);
-        const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
-          | Component
-          | undefined;
+        const wrapper = getFrameWrapper(frame);
         if (!wrapper) {
           throw new Error(`artboard ${input.artboardId} has no wrapper component`);
         }
         parent = wrapper;
       } else {
         const firstFrame = editor.Canvas.getFrames()[0];
-        const wrapper = (firstFrame as unknown as { get?: (k: string) => unknown })?.get?.(
-          "component",
-        ) as Component | undefined;
+        const wrapper = firstFrame ? getFrameWrapper(firstFrame) : undefined;
         if (wrapper) parent = wrapper;
       }
       // Frameless fallback used to call editor.addComponents(html), which under
@@ -458,12 +413,6 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       const input = SetTextInput.parse(params);
       const c = findById(editor, input.componentId);
       if (!c) throw new Error(`component not found: ${input.componentId}`);
-      const setter = c as unknown as {
-        get: (k: string) => unknown;
-        set: (k: string, v: unknown) => void;
-        empty?: () => void;
-        append: (x: unknown) => void;
-      };
       // Two cases:
       //  1. The component IS a textnode (parent.get('type') === 'textnode') —
       //     update its `content` field directly.
@@ -471,12 +420,17 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       //     child — wipe its children and append one textnode. This handles
       //     button / h1 / p / label / span etc. where the text lives in a
       //     child textnode and `set('content', ...)` on the parent is a no-op.
-      if (setter.get("type") === "textnode") {
+      if (getComponentField<string>(c, "type") === "textnode") {
+        const setter = c as unknown as { set: (k: string, v: unknown) => void };
         setter.set("content", input.text);
         return { text: input.text };
       }
-      setter.empty?.();
-      setter.append({ type: "textnode", content: input.text });
+      const mutable = c as unknown as {
+        empty?: () => void;
+        append: (x: unknown) => void;
+      };
+      mutable.empty?.();
+      mutable.append({ type: "textnode", content: input.text });
       return { text: input.text };
     },
 
@@ -540,8 +494,7 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
 
 function countDescendants(c: Component): number {
   let n = 0;
-  const childArray = (c.components() as unknown as { toArray: () => Component[] }).toArray();
-  for (const child of childArray) {
+  for (const child of componentsToArray(c)) {
     n += 1 + countDescendants(child);
   }
   return n;

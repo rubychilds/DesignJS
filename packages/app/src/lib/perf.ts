@@ -35,14 +35,12 @@ export function timeTool<T>(
     try {
       const result = await fn(params);
       const dur = performance.now() - t0;
-      // eslint-disable-next-line no-console
       console.log(`[designjs:perf] ${name}: ${dur.toFixed(0)}ms`);
       // TODO(ADR-0014): when PostHog lands, also emit:
       //   posthog?.capture("tool.executed", { tool: name, duration_ms: dur });
       return result;
     } catch (err) {
       const dur = performance.now() - t0;
-      // eslint-disable-next-line no-console
       console.warn(`[designjs:perf] ${name}: ${dur.toFixed(0)}ms (error)`);
       // TODO(ADR-0014): when PostHog lands, also emit:
       //   posthog?.capture("tool.failed", { tool: name, duration_ms: dur,

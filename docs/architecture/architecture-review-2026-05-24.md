@@ -49,32 +49,33 @@ The four-tier rollup. Tier-1 + Tier-2 totals are the actionable inventory; Tier-
 
 Small, high-leverage, low-risk changes. Each fixable in under a day, often in under an hour. Bundled into ~4-6 PRs they close most of the immediate hygiene gaps.
 
-**Progress as of 2026-06-10** (on the `hygiene-pass` feature branch):
+**Progress as of 2026-06-10 (updated after Tier 1 close)** on the `hygiene-pass` feature branch:
 
 | Status | Count | What it means |
 |---|---|---|
-| `[done]` | 16 | Committed on `hygiene-pass`, commit SHA shown inline |
-| `[wt]` | 8 | Done in working tree, awaiting the final thematic commit |
+| `[done]` | 24 | Committed on `hygiene-pass`, commit SHA shown inline |
 | `[pre-existing]` | 1 | Subagent verified the work was already done before this review |
 | `[deferred]` | 3 | Belongs in the separate `designjs-docs/` repo; deferred to a future session |
 
-Markers: `[done — <sha>]` (committed); `[wt]` (working tree, pending commit); `[pre-existing]` (already done); `[deferred]` (separate-repo work).
+**Tier 1 is closed** — 25 of 28 actually completed (24 committed + 1 pre-existing), 3 deferred by scope.
+
+Markers: `[done — <sha>]` (committed); `[pre-existing]` (already done); `[deferred]` (separate-repo work).
 
 **Codebase** ([`architecture-codebase.md`](./architecture-codebase.md))
 - `[done — 797b94a]` F.04 — `create-designjs/tsconfig.json` drops `noUncheckedIndexedAccess` (1 line)
 - `[done — 1f99aca]` F.09 — Gate `window.__designjs` behind `import.meta.env.DEV` (1 line, security)
 
 **Testing** ([`architecture-testing.md`](./architecture-testing.md))
-- `[wt]` F.16 — Self-updating `smoke-mcp.mjs` (`Object.keys(TOOL_SCHEMAS)`)
+- `[done — 373cfdb]` F.16 — Self-updating `smoke-mcp.mjs` (`Object.keys(TOOL_SCHEMAS)`)
 - `[pre-existing]` F.17 — Bridge schema tests for `add_classes`/`remove_classes`/`set_text`/`select`/`deselect` — these tests already exist in `tools-artboards.test.ts`. The testing deep dive was stale on this finding.
-- `[wt]` F.21 — Playwright JSON reporter + retry-stat script
+- `[done — 373cfdb]` F.21 — Playwright JSON reporter + retry-stat script
 
 **CI/DX** ([`architecture-ci-dx.md`](./architecture-ci-dx.md))
-- `[wt]` F.41 + F.42 + F.43 — **ESLint + Prettier + Lefthook bundle**
+- `[done — 373cfdb]` F.41 + F.42 + F.43 — **ESLint + Prettier + Lefthook bundle**
 - `[done — 797b94a]` F.36 — PR template CHANGELOG prompt
 - `[done — 797b94a]` F.45 — `.nvmrc` + `.editorconfig`
 - `[done — 797b94a]` F.49 — Update MCP tool issue template ("v0.1 (existing 9 tools)" stale)
-- `[wt]` F.46 + F.47 — CodeQL + `pnpm audit` in CI
+- `[done — 373cfdb]` F.46 + F.47 — CodeQL + `pnpm audit` in CI
 
 **Security** ([`architecture-security.md`](./architecture-security.md))
 - `[done — 797b94a]` F.57 — SECURITY.md vendored-projects list completeness
@@ -84,7 +85,7 @@ Markers: `[done — <sha>]` (committed); `[wt]` (working tree, pending commit); 
 - `[done — 797b94a]` F.64 — Copy LICENSE into `packages/create-designjs/`
 - `[done — 797b94a]` F.65 — Add `declarationMap` + `sourceMap` to `mcp-server/tsconfig.json`
 - `[done — 797b94a]` F.68 — `scripts/check-changelog.mjs`
-- `[wt]` F.72 — Chrome extension build step in CI
+- `[done — 373cfdb]` F.72 — Chrome extension build step in CI
 - `[deferred]` F.74 — `docs.json` OG URL rebrand (separate `designjs-docs/` repo)
 
 **Observability** ([`architecture-observability.md`](./architecture-observability.md))
@@ -103,48 +104,26 @@ Markers: `[done — <sha>]` (committed); `[wt]` (working tree, pending commit); 
 
 Larger refactors or coordinated work. Each takes a day to a week. Should land before v0.2 chat panel ships.
 
-**Codebase**
-- F.06 — Centralize grapesjs type helpers in `canvas/grapesjs-types.ts`
-- F.07 — Bridge protocol version negotiation (coordinate with F.51)
-- F.10 — Standardize component directory convention before Track A merges
-- F.11 — Per-package READMEs
+**Progress as of 2026-06-10 (updated after first Tier 2 batch)** on the `hygiene-pass` branch:
 
-**Testing**
-- F.13 — Drop CI retries to 1 once F.21 confirms suite stability
-- F.14 — Add Firefox + WebKit Playwright projects (nightly)
-- F.15 — Visual regression on 5-10 surfaces
-- F.18 — Unit-test `bridge/handlers.ts` with mock-editor harness (highest-value gap)
-- F.22 — Coverage reporting in CI
+| Status | Count | Findings |
+|---|---|---|
+| `[done]` | 7 | F.11 + F.88 (per-package READMEs, db122e1); F.40 + F.98 (doc-drift checker, d2d5c51); F.59 (OAuth `state` validation, 6770d3e); F.60 (sandbox postMessage origin checks, 6770d3e); F.61 (SECURITY.md v0.2 gaps, 6770d3e); F.77 (.env.example + Zod env validation, d2d5c51) |
+| `[in-flight]` (subagent drafting) | 3 | F.51 (ADR-0015 — bridge protocol v2: auth + versioning + capabilities); F.76 (ADR-0013 — cloud tier on Supabase); F.58 (ADR-0017 — secrets module at `~/.designjs/secrets.json`) — drafted as **Proposed** ADRs, not yet implemented. 2 of 3 ADR files have landed in the working tree (0013, 0015); 0017 is in progress. |
+| `[partial]` (covered by ADRs) | 3 | F.07 (protocol versioning lands in ADR-0015's Phase 1); F.52 (persistence middleware token lands with ADR-0015); F.54 (capability scoping lands in ADR-0015 Phase 2) |
 
-**CI/DX**
-- F.39 — Adopt Changesets (after Track A/B first PR lands)
-- F.40 — MCP tool count drift script
+The "partial" items are captured by the ADR-0015 design but require implementation work to fully close. They flip from `[partial]` to `[done]` when the bridge-server + bridge-client changes land.
 
-**Security**
-- **F.51 — Bridge WebSocket token authentication** (the biggest single finding)
-- F.52 — Persistence middleware shares the F.51 token
-- F.54 — Capability scoping for chat Ask mode
-- F.58 — Secrets-module ADR
-- F.59 — OAuth-PKCE state validation spec edit
-- F.60 — Sandbox iframe postMessage origin + type validation
-- F.61 — SECURITY.md gaps update
+**Remaining Tier 2** (not yet started — deferred to focused follow-up work):
 
-**Deployment**
-- F.66 — Independent versioning with Changesets + linked bridge↔mcp-server
-- F.67 + F.70 — Release workflow with `npm publish --provenance`
-- F.71 — Chrome Web Store submission (gates v0.3 public)
-- F.76 — Cloud-tier ADR before any Supabase code lands
-- F.77 — `.env.example` + env-validation
+- **Codebase:** F.06 (grapesjs type helpers), F.10 (component dir convention — defer until Track A/B merges)
+- **Testing:** F.13 (drop CI retries — pending F.21 baseline), F.14 (Firefox + WebKit nightly), F.15 (visual regression baseline), F.18 (handlers.ts unit tests with mock-editor — biggest single effort), F.22 (coverage reporting in CI)
+- **CI/DX:** F.39 (Changesets adoption)
+- **Deployment:** F.66 (independent versioning — depends on F.39), F.67 + F.70 (release workflow + provenance — depends on F.39), F.71 (Chrome Web Store submission — manual external)
+- **Observability:** F.83 (Sentry, opt-in — before chat panel ships), F.85 (performance instrumentation wrapper), F.86 (privacy policy on docs site — separate `designjs-docs/` repo)
+- **Docs:** F.95 Option C (generate MCP tool docs from `tools.ts` — partially deferred to separate repo)
 
-**Observability**
-- F.83 — Sentry integration, opt-in (before chat panel ships)
-- F.85 — Performance instrumentation wrapper
-- F.86 — Privacy policy on docs site (depends on F.83/F.84)
-
-**Docs**
-- F.88 — Per-package READMEs for `@designjs/bridge` + `@designjs/mcp-server` (npm-page-visible)
-- F.98 — Single doc-drift checker script (closes the class)
-- F.95 Option C — Generate MCP tool docs from `tools.ts`
+Adjacent fix from this session: root README's MCP tool prose count drift "21" → "22" (2 sites; F.40-adjacent), captured by the per-package README subagent and closed by the doc-drift checker script that gates against this class of drift recurring.
 
 ### Tier 3 — keep an eye on (~20 findings)
 

@@ -33,6 +33,7 @@ import {
 import { chunkCss } from "../canvas/css-chunk.js";
 import { htmlToJsx, mergeStylesIntoHtml } from "../canvas/jsx-export.js";
 import { getVariables, setVariables } from "../canvas/variables.js";
+import { timeTool } from "../lib/perf.js";
 
 type ToolHandler = (params: unknown) => Promise<unknown> | unknown;
 
@@ -524,6 +525,14 @@ export function buildHandlers(editor: Editor): Record<string, ToolHandler> {
       triggerUpdate();
       return result;
     };
+  }
+
+  // Wrap every handler with perf instrumentation (F.85). Wrapping at
+  // return time — rather than at each handler's definition — keeps every
+  // handler body free of perf concerns, and lets timeTool also measure
+  // the post-mutation update-event firing the write-tool wrap above adds.
+  for (const name of Object.keys(handlers)) {
+    handlers[name] = timeTool(name, handlers[name]!);
   }
 
   return handlers;

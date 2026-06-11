@@ -104,16 +104,16 @@ Markers: `[done — <sha>]` (committed); `[pre-existing]` (already done); `[defe
 
 Larger refactors or coordinated work. Each takes a day to a week. Should land before v0.2 chat panel ships.
 
-**Progress as of 2026-06-11 (updated after the F.06/F.14/F.18/F.85 batch)** on the `hygiene-pass` branch:
+**Progress as of 2026-06-11 (updated after the ADR triple landed)** on the `hygiene-pass` branch:
 
 | Status | Count | Findings |
 |---|---|---|
-| `[done]` | 13 | F.06 (grapesjs type helpers, ff384fb); F.11 + F.88 (per-package READMEs, db122e1); F.14 (cross-browser Playwright + nightly, d1ba5ad); F.18 (handlers unit tests, e36a88c); F.40 + F.98 (doc-drift checker, d2d5c51); F.59 + F.60 + F.61 (spec security, 6770d3e); F.77 (.env.example + Zod env validation, d2d5c51); F.85 (perf instrumentation wrapper, 03860cf) |
-| `[in-flight]` (subagent drafting) | 3 | F.51 (ADR-0015 — bridge protocol v2: auth + versioning + capabilities); F.76 (ADR-0013 — cloud tier on Supabase); F.58 (ADR-0017 — secrets module at `~/.designjs/secrets.json`) — drafted as **Proposed** ADRs. 2 of 3 ADR files landed in working tree (0013, 0015); 0017 still pending. |
-| `[partial]` (covered by ADRs) | 3 | F.07 (protocol versioning lands in ADR-0015 Phase 1); F.52 (persistence middleware token lands with ADR-0015); F.54 (capability scoping lands in ADR-0015 Phase 2) |
-| **Closed via F.18 / F.06** | — | Plus F.18 follow-ups landed inline: addComponents frameless throw + select JSDoc (c227274). Bugs 2/4/5 deferred for focused session. |
+| `[done]` | 16 | F.06 (ff384fb); F.11 + F.88 (db122e1); F.14 (d1ba5ad); F.18 (e36a88c + c227274 + 842ae0d); F.40 + F.98 (d2d5c51); F.51 (ADR-0015 Proposed, 5df8598); F.58 (ADR-0017 Proposed, fc1a8c2); F.59 + F.60 + F.61 (6770d3e); F.76 (ADR-0013 Proposed, 5df8598); F.77 (d2d5c51); F.85 (03860cf) |
+| `[partial-via-ADR]` | 3 | F.07 (lands in ADR-0015 Phase 1 — implementation pending); F.52 (persistence middleware token lands with ADR-0015); F.54 (capability scoping lands in ADR-0015 Phase 2) |
 
-**Remaining Tier 2** (not yet started — deferred to focused follow-up work):
+**Tier 2 status:** 16 of 28 findings closed (8 docs/ADRs + 6 code/test + F.18 follow-ups inline); 3 design-captured via ADRs awaiting implementation; 9 not-yet-started.
+
+**Remaining Tier 2** (deferred to focused follow-up):
 
 - **Codebase:** F.10 (component dir convention — defer until Track A/B merges)
 - **Testing:** F.13 (drop CI retries — pending F.21 baseline), F.15 (visual regression baseline), F.22 (coverage reporting in CI)
@@ -121,6 +121,8 @@ Larger refactors or coordinated work. Each takes a day to a week. Should land be
 - **Deployment:** F.66 (independent versioning — depends on F.39), F.67 + F.70 (release workflow + provenance — depends on F.39), F.71 (Chrome Web Store submission — manual external)
 - **Observability:** F.83 (Sentry, opt-in — before chat panel ships), F.86 (privacy policy on docs site — separate `designjs-docs/` repo)
 - **Docs:** F.95 Option C (generate MCP tool docs from `tools.ts` — partially deferred to separate repo)
+
+**v0.2 implementation queue** (now that the design decisions are captured in ADR-0013 + ADR-0015 + ADR-0017): the bridge token (F.51), protocol versioning (F.07), persistence token (F.52), capability scoping (F.54), and the secrets module (F.58) all land as one coordinated bridge release — the "v0.2 security gate" bundle from the synthesis Top 10 row #10. ADR-0013's cloud-tier implementation is gated on the bridge being hardened first.
 
 Adjacent fixes from this session beyond formal Tier 2: root README MCP tool prose count drift "21" → "22" (closed by the doc-drift checker); CONTRIBUTING.md + PR template + RELEASING.md updated for new lint/format/Lefthook/cross-browser/doc-drift gates.
 

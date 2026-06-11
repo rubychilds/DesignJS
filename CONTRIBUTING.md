@@ -48,14 +48,30 @@ When adding a new MCP tool:
 
 ```bash
 pnpm typecheck              # all packages
+pnpm lint                   # ESLint (flat config: typescript-eslint, react-hooks, jsx-a11y)
+pnpm format:check           # Prettier check (no writes)
+pnpm format                 # Prettier write (formats files in place)
 pnpm --filter @designjs/bridge build
 pnpm smoke:bridge           # WebSocket round-trip (no browser)
 node scripts/smoke-mcp.mjs  # MCP stdio handshake + tools/list
-pnpm test:e2e               # Playwright E2E tests (boots the dev server)
+node scripts/check-doc-drift.mjs  # README MCP tool count + e2e count drift
+node scripts/check-changelog.mjs  # CHANGELOG entry for each published-package version
+pnpm test:e2e               # Playwright E2E (chromium); cross-browser runs nightly
 pnpm test:e2e:ui            # Same, with the Playwright UI runner
 ```
 
 The CI pipeline runs the same checks on every push and PR. Before running Playwright for the first time, install the browser: `pnpm exec playwright install chromium`.
+
+### Pre-commit hooks (Lefthook)
+
+Lefthook runs in parallel on every commit:
+
+- `eslint --max-warnings 0` on staged `*.{ts,tsx,js,mjs,cjs}` files
+- `prettier --check` on staged `*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}` files
+
+Skip hooks for WIP commits with `git commit --no-verify` (alias `-n`). CI still gates on lint + format-check, so push-and-fix is fine — just don't merge unclean.
+
+If hooks didn't install (e.g., the workspace was cloned without `pnpm install` first), run `pnpm exec lefthook install` once.
 
 ### E2E test layout
 

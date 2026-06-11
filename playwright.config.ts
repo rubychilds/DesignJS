@@ -8,7 +8,13 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 2 : 1,
   workers: 1,
-  reporter: CI ? [["github"], ["list"]] : "list",
+  reporter: CI
+    ? [
+        ["github"],
+        ["list"],
+        ["json", { outputFile: "playwright-report/results.json" }],
+      ]
+    : "list",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   use: {

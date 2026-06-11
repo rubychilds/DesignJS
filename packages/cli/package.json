@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings 0"
   },
   "dependencies": {},
   "devDependencies": {

@@ -2,6 +2,7 @@
   "name": "designjs",
   "version": "0.1.0-dev",
   "private": true,
+  "type": "module",
   "description": "Open-source MCP design canvas that gives AI coding agents eyes",
   "license": "MIT",
   "scripts": {
@@ -9,6 +10,8 @@
     "build": "pnpm --filter @designjs/bridge build && pnpm -r --filter '!@designjs/bridge' build",
     "typecheck": "pnpm --filter @designjs/bridge build && pnpm -r typecheck",
     "lint": "pnpm -r lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "mcp": "pnpm --filter @designjs/bridge build && pnpm --filter @designjs/mcp-server start",
     "smoke:bridge": "pnpm --filter @designjs/bridge build && node scripts/smoke-bridge.mjs",
     "smoke:init": "pnpm --filter @designjs/cli build && node scripts/smoke-init.mjs",
@@ -18,9 +21,16 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "eslint": "^9.0.0",
+    "eslint-plugin-import-x": "^4.0.0",
+    "eslint-plugin-jsx-a11y": "^6.10.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "lefthook": "^1.7.0",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
+    "prettier": "^3.0.0",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.0.0",
     "ws": "^8.20.0"
   },
   "packageManager": "pnpm@9.12.0",

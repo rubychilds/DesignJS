@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+playwright-report/
+test-results/
+pnpm-lock.yaml
+
+# Vendored
+onlook/
+penpot/
+flux/
+Blipshot/
+SingleFile/
+chrome-devtools-mcp/
+screenshot-capture/
+design.md/
+designjs-docs/
+opencode/

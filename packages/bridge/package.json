@@ -16,6 +16,7 @@
     "build": "tsc",
     "dev": "tsc --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "tsc"

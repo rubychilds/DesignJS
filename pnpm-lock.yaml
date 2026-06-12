@@ -207,8 +207,8 @@ importers:
         specifier: ^14.0.0
         version: 14.0.0(webpack@5.107.1)
       css-loader:
-        specifier: ^6.7.2
-        version: 6.11.0(webpack@5.107.1)
+        specifier: ^7.1.4
+        version: 7.1.4(webpack@5.107.1)
       jsdom:
         specifier: ^23.0.0
         version: 23.2.0
@@ -2576,12 +2576,12 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
-  css-loader@6.11.0:
-    resolution: {integrity: sha512-CTJ+AEQJjq5NzLga5pE39qdiSV56F8ywCIsqNIRF0r7BDgWsN25aazToqAFg7ZrtA/U016xudB3ffgweORxX7g==}
-    engines: {node: '>= 12.13.0'}
+  css-loader@7.1.4:
+    resolution: {integrity: sha512-vv3J9tlOl04WjiMvHQI/9tmIrCxVrj6PFbHemBB1iihpeRbi/I4h033eoFIhwxBBqLhI0KYFS7yvynBFhIZfTw==}
+    engines: {node: '>= 18.12.0'}
     peerDependencies:
-      '@rspack/core': 0.x || 1.x
-      webpack: ^5.0.0
+      '@rspack/core': 0.x || ^1.0.0 || ^2.0.0-0
+      webpack: ^5.27.0
     peerDependenciesMeta:
       '@rspack/core':
         optional: true
@@ -3499,8 +3499,8 @@ packages:
     peerDependencies:
       postcss: ^8.1.0
 
-  postcss-selector-parser@7.1.1:
-    resolution: {integrity: sha512-orRsuYpJVw8LdAwqqLykBj9ecS5/cRHlI5+nvTo8LcCKmzDmqVORXtOIYEEQuL9D4BxtA1lm5isAqzQZCoQ6Eg==}
+  postcss-selector-parser@7.1.4:
+    resolution: {integrity: sha512-HeP7D2wyhkR+XaK6v4W8oRF62Dsz4flyuczALJp61GckGm42u1saSSJ/0auvcBqxs3jMRFEcPK34At/0JBKdOg==}
     engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
@@ -3755,6 +3755,11 @@ packages:
 
   semver@7.7.4:
     resolution: {integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==}
+    engines: {node: '>=10'}
+    hasBin: true
+
+  semver@7.8.4:
+    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -6535,7 +6540,7 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
-  css-loader@6.11.0(webpack@5.107.1):
+  css-loader@7.1.4(webpack@5.107.1):
     dependencies:
       icss-utils: 5.1.0(postcss@8.5.15)
       postcss: 8.5.15
@@ -6544,7 +6549,7 @@ snapshots:
       postcss-modules-scope: 3.2.1(postcss@8.5.15)
       postcss-modules-values: 4.0.0(postcss@8.5.15)
       postcss-value-parser: 4.2.0
-      semver: 7.7.4
+      semver: 7.8.4
     optionalDependencies:
       webpack: 5.107.1(lightningcss@1.32.0)(postcss@8.5.15)(webpack-cli@7.0.3)
 
@@ -7440,20 +7445,20 @@ snapshots:
     dependencies:
       icss-utils: 5.1.0(postcss@8.5.15)
       postcss: 8.5.15
-      postcss-selector-parser: 7.1.1
+      postcss-selector-parser: 7.1.4
       postcss-value-parser: 4.2.0
 
   postcss-modules-scope@3.2.1(postcss@8.5.15):
     dependencies:
       postcss: 8.5.15
-      postcss-selector-parser: 7.1.1
+      postcss-selector-parser: 7.1.4
 
   postcss-modules-values@4.0.0(postcss@8.5.15):
     dependencies:
       icss-utils: 5.1.0(postcss@8.5.15)
       postcss: 8.5.15
 
-  postcss-selector-parser@7.1.1:
+  postcss-selector-parser@7.1.4:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
@@ -7754,6 +7759,8 @@ snapshots:
   semver@6.3.1: {}
 
   semver@7.7.4: {}
+
+  semver@7.8.4: {}
 
   send@1.2.1:
     dependencies:

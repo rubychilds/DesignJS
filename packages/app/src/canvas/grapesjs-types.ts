@@ -156,8 +156,14 @@ export function removeFrameFromPage(editor: Editor, frame: Frame): boolean {
   const page = (editor.Pages as unknown as {
     getSelected?: () => { getFrames?: () => { remove?: (x: unknown) => void } } | undefined;
   }).getSelected?.();
-  const remove = page?.getFrames?.()?.remove;
-  if (typeof remove !== "function") return false;
-  remove(frame);
+  const frames = page?.getFrames?.();
+  if (!frames || typeof frames.remove !== "function") return false;
+  // Call as a method on the collection, NOT as a destructured function.
+  // Backbone's Collection.remove uses `this._removeModels(...)` internally,
+  // so a bare `remove(frame)` (which is what the F.06 refactor originally
+  // did) throws `Cannot read properties of undefined (reading '_removeModels')`.
+  // This blocked Playwright boot until found — handleReady's scratch-frame
+  // cleanup path hits this on every fresh canvas load.
+  frames.remove(frame);
   return true;
 }

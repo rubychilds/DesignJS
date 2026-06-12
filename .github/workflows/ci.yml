@@ -105,8 +105,14 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Playwright E2E
-        run: pnpm test:e2e
+      # F.14 added firefox + webkit projects to playwright.config.ts for the
+      # nightly cross-browser workflow. The PR-gating job here only installs
+      # chromium (see the install step above), so we must scope to chromium
+      # explicitly — otherwise Playwright tries to launch all 3 projects and
+      # 2/3 of the runs fail with "Executable doesn't exist". The cross-browser
+      # nightly at .github/workflows/e2e-cross-browser.yml handles ff + webkit.
+      - name: Playwright E2E (chromium)
+        run: pnpm test:e2e --project chromium
 
       - name: Retry stats
         if: always()

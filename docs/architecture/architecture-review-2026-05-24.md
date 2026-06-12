@@ -26,20 +26,20 @@ The recon doc found three things that contradicted its initial impression and go
 
 ## Top 10 recommendations
 
-Ranked by leverage × urgency. Detailed rationale in the deep dives.
+Ranked by leverage × urgency. Detailed rationale in the deep dives. **Status column updated 2026-06-11** — see the [Addendum](#addendum--implementation-log-2026-06-1011) for the full session implementation log.
 
-| Rank | Recommendation | Finding | Effort | Why now |
-|---|---|---|---|---|
-| 1 | **Install ESLint + Prettier + Lefthook** | F.41 + F.42 + F.43 | ~half day | Single biggest DX improvement. Gates a class of bugs (React hook rules, floating promises, a11y) that TS doesn't catch. Lands before v0.2 chat-panel code starts pouring in. |
-| 2 | **Gate `window.__designjs` behind `import.meta.env.DEV`** | F.09 | ~5 min | One-line security improvement. E2E tests still work under `pnpm dev`. Production exposure closes immediately. |
-| 3 | **Add WebSocket bridge token authentication** | F.51 + F.07 | ~half day | Closes the biggest single security finding. Coordinate with protocol versioning (F.07) in one bridge release. Must land before any API-key-handling code merges. |
-| 4 | **Self-update `smoke-mcp.mjs` from `TOOL_SCHEMAS`** | F.16 | ~10 min | Closes a class of doc-drift (asserts subset of 9 of 22 tools today; would silently miss future tools dropping out of registration). |
-| 5 | **Add React error boundary at App root** | F.82 | ~1 hour | Prevents a single component crash from killing the canvas. Users on hours of unsaved work get a recoverable error instead of a blank screen. |
-| 6 | **Add CodeQL + `pnpm audit` to CI** | F.46 + F.47 | ~30 min | Security baseline. CodeQL is free for public repos. Catches source-level vulnerabilities Dependabot doesn't. |
-| 7 | **Migrate the 6 v0.2/v0.3 specs from Obsidian into `docs/specs/`** | F.99 | ~10 min | The scaffolded feature branches' header comments reference `DesignJS-Notes/<spec>.md` paths that don't exist for any contributor but the user. Makes the architecture's forward-looking thinking visible. |
-| 8 | **Unit-test `packages/app/src/bridge/handlers.ts`** | F.18 | ~1-2 days | 525 LOC, largest single file in the canvas package, GrapesJS's heaviest coupling site. Currently only covered via E2E. A mock-editor harness (already proven in `artboards.test.ts`) closes this. |
-| 9 | **Doc-drift checker script + MCP tool docs generation** | F.98 + F.94 + F.95 Option C | ~half day | Closes the entire doc-drift class (tool count, missing tool pages, stale README claims) by deriving facts from `TOOL_SCHEMAS` and generating Mintlify MDX. |
-| 10 | **`window.__designjs` revised + bridge token + capability scoping shipped together as a "v0.2 security gate"** | F.09 + F.51 + F.52 + F.54 | ~1-2 days bundled | The chat panel will introduce capability differentiation (Build vs Ask modes); without bridge-side enforcement, the client can lie about its mode. Bundle the work. |
+| Rank | Recommendation | Finding | Effort | Why now | Status |
+|---|---|---|---|---|---|
+| 1 | **Install ESLint + Prettier + Lefthook** | F.41 + F.42 + F.43 | ~half day | Single biggest DX improvement. Gates a class of bugs (React hook rules, floating promises, a11y) that TS doesn't catch. Lands before v0.2 chat-panel code starts pouring in. | **Done — 373cfdb** |
+| 2 | **Gate `window.__designjs` behind `import.meta.env.DEV`** | F.09 | ~5 min | One-line security improvement. E2E tests still work under `pnpm dev`. Production exposure closes immediately. | **Done — 1f99aca** |
+| 3 | **Add WebSocket bridge token authentication** | F.51 + F.07 | ~half day | Closes the biggest single security finding. Coordinate with protocol versioning (F.07) in one bridge release. Must land before any API-key-handling code merges. | **Design captured — [ADR-0015](../adr/0015-bridge-protocol-v2.md) Proposed, 5df8598; implementation pending v0.2 bridge release** |
+| 4 | **Self-update `smoke-mcp.mjs` from `TOOL_SCHEMAS`** | F.16 | ~10 min | Closes a class of doc-drift (asserts subset of 9 of 22 tools today; would silently miss future tools dropping out of registration). | **Done — 373cfdb** |
+| 5 | **Add React error boundary at App root** | F.82 | ~1 hour | Prevents a single component crash from killing the canvas. Users on hours of unsaved work get a recoverable error instead of a blank screen. | **Done — 1f99aca** |
+| 6 | **Add CodeQL + `pnpm audit` to CI** | F.46 + F.47 | ~30 min | Security baseline. CodeQL is free for public repos. Catches source-level vulnerabilities Dependabot doesn't. | **Done — 373cfdb** |
+| 7 | **Migrate the 6 v0.2/v0.3 specs from Obsidian into `docs/specs/`** | F.99 | ~10 min | The scaffolded feature branches' header comments reference `DesignJS-Notes/<spec>.md` paths that don't exist for any contributor but the user. Makes the architecture's forward-looking thinking visible. | **Done — 89052e0** |
+| 8 | **Unit-test `packages/app/src/bridge/handlers.ts`** | F.18 | ~1-2 days | 525 LOC, largest single file in the canvas package, GrapesJS's heaviest coupling site. Currently only covered via E2E. A mock-editor harness (already proven in `artboards.test.ts`) closes this. | **Done — e36a88c** (64 tests, all 22 tools covered) + follow-up bug fixes c227274 + typecheck/lint cleanup 842ae0d |
+| 9 | **Doc-drift checker script + MCP tool docs generation** | F.98 + F.94 + F.95 Option C | ~half day | Closes the entire doc-drift class (tool count, missing tool pages, stale README claims) by deriving facts from `TOOL_SCHEMAS` and generating Mintlify MDX. | **Partial — script done (F.98 + F.40, d2d5c51); MCP MDX gen (F.94 + F.95 Option C) deferred to the separate `designjs-docs/` repo** |
+| 10 | **`window.__designjs` revised + bridge token + capability scoping shipped together as a "v0.2 security gate"** | F.09 + F.51 + F.52 + F.54 | ~1-2 days bundled | The chat panel will introduce capability differentiation (Build vs Ask modes); without bridge-side enforcement, the client can lie about its mode. Bundle the work. | **Partial — F.09 done (1f99aca); F.51/F.52/F.54 design captured in ADR-0015 Proposed, implementation pending the v0.2 bridge release** |
 
 ## Findings by tier
 
@@ -225,3 +225,76 @@ Total ~5,000 LOC of analysis across 100 findings. The full review is ~25-30 hour
 Conducted 2026-05-24. Solo reviewer + Claude. Read-only — no production code changed. Tier-1 findings should land within a few days; Tier-2 over the next quarter; Tier-3/4 surface naturally as conditions evolve. The next review cadence should be after v0.2 ships, at which point the in-flight specs become implemented surface and the security/observability ADRs land. Suggested next review: ~Q4 2026.
 
 The bones are good. The recommendations are about hardening edges, not replacing foundations.
+
+---
+
+## Addendum — implementation log (2026-06-10/11)
+
+> Written 2026-06-11. The original 2026-05-24 review above is preserved as a point-in-time snapshot. This addendum captures the implementation work that closed 41 of the 56 actionable Tier-1+2 findings on the `hygiene-pass` feature branch.
+
+### Headline
+
+**23 commits, 41 findings closed across two days.** Tier 1 is closed (25 of 28 actually completed — 24 committed + 1 verified pre-existing; 3 deferred to the separate `designjs-docs/` repo). Tier 2 is at 16 of 28 closed, 3 design-captured via Proposed ADRs awaiting implementation, 9 not-yet-started.
+
+Three new ADRs (Proposed) capture the v0.2 security gate: [ADR-0013](../adr/0013-cloud-tier-supabase.md) (cloud tier on Supabase, closes F.76), [ADR-0015](../adr/0015-bridge-protocol-v2.md) (bridge protocol v2 — auth + versioning + capabilities, closes F.51, F.07-design, F.54-design), and [ADR-0017](../adr/0017-secrets-module.md) (secrets module, closes F.58). Together they describe the coordinated bridge release that's now the gating item for v0.2's chat panel + repo connection.
+
+### Commit log
+
+Commits land in thematic groups. Each row lists the findings the commit closed.
+
+| Commit | Theme | Findings closed |
+|---|---|---|
+| `74aa28f` | Land 2026-05-24 architecture review docs | F.92 |
+| `89052e0` | Migrate v0.2/v0.3 specs from Obsidian into `docs/specs/` | F.99 |
+| `797b94a` | Tier-1 config hygiene bundle (tsconfigs, README, SECURITY, templates) | F.04, F.36, F.45, F.49, F.57, F.63, F.64, F.65, F.68, F.87, F.90, F.100 |
+| `1f99aca` | Gate `window.__designjs` to DEV; add React error boundary | F.09, F.82 |
+| `f24c71c` | First Tier-1 progress checkoff in synthesis | — (tracking doc) |
+| `373cfdb` | ESLint + Prettier + Lefthook + CI hardening + test infrastructure | F.16, F.21, F.41, F.42, F.43, F.46, F.47, F.72 |
+| `db122e1` | Per-package READMEs | F.11, F.88 |
+| `6770d3e` | OAuth state validation + sandbox postMessage origin checks + SECURITY.md gaps | F.59, F.60, F.61 |
+| `d2d5c51` | `.env.example` + Zod env validation + doc-drift checker + README MCP tool count fix | F.40, F.77, F.98 |
+| `e5eeed8` | Flip Tier-1 `[wt]` → `[done]` markers; add Tier-2 progress block | — (tracking doc) |
+| `968829c` | CONTRIBUTING + PR template updates for new lint/format/Lefthook | — (contributor docs) |
+| `d1ba5ad` | Firefox + WebKit Playwright projects + nightly cross-browser workflow | F.14 |
+| `052a7ab` | RELEASING.md pre-flight checklist for new quality gates | — (release docs) |
+| `e36a88c` | Bridge handlers unit tests with mock-editor harness | F.18 |
+| `c227274` | F.18 follow-up — `add_components` frameless throw + `select` JSDoc | — (bug-1, 3 from F.18) |
+| `842ae0d` | F.18 follow-up — typecheck circularity + unused param | — (post-F.18 hygiene) |
+| `03860cf` | Performance instrumentation wrapper | F.85 |
+| `ff384fb` | Centralise grapesjs type helpers | F.06 |
+| `3b687e5` | Remove 2 missed eslint-disable directives in `perf.ts` | — (post-F.85 lint cleanup) |
+| `96047ee` | Flip 6 more Tier-2 findings to `[done]` in synthesis | — (tracking doc) |
+| `5df8598` | Land ADR-0013 (cloud tier) + ADR-0015 (bridge protocol v2) | F.51, F.76 (design) |
+| `fc1a8c2` | Land ADR-0017 (secrets module) + ADR README index update | F.58 (design) |
+| `3547a89` | Flip F.51 + F.58 + F.76 to `[done]`; Tier-2 final tally | — (tracking doc) |
+
+### Code surface delta
+
+- **+1,038 LOC of tests** — `packages/app/src/bridge/__tests__/handlers.test.ts` (F.18; 64 tests, all 22 MCP tools covered). The app test suite grew from ~165 to 229 passing tests / 832ms total runtime.
+- **−98 LOC net in canvas modules** — F.06 collapsed 53 inline `as unknown as { ... }` cast patterns to 30, of which 13 are now localised in `packages/app/src/canvas/grapesjs-types.ts` (auditable; 17 remain in business logic). Net: 36 → 17 ad-hoc casts.
+- **+86 LOC observability** — `packages/app/src/lib/perf.ts` (F.85) — `timeTool` wraps every bridge handler with `[designjs:perf]` console output; TODO marks the future PostHog `.capture()` call that lands with ADR-0014.
+- **+504 LOC ADR design** — ADR-0013 (265 LOC) + ADR-0015 (239 LOC) + ADR-0017 (170 LOC).
+- **+~3,800 LOC architecture review docs** — the 9 review docs (synthesis + recon + 7 deep dives + README).
+
+### Quality gates added
+
+The `verify` CI job now runs (on every push + PR): `pnpm typecheck`, `pnpm lint` (continue-on-error until 8 pre-existing warnings are addressed), `pnpm audit` (prod deps), bridge build, `pnpm test`, all bridge/MCP/init smoke tests, plus the new Chrome extension production-build step. The new `codeql` workflow runs on push + PR + weekly Mondays. The new `e2e-cross-browser` workflow runs nightly + on demand against Firefox + WebKit.
+
+Local pre-commit: Lefthook runs ESLint (`--max-warnings 0`) + Prettier `--check` on staged files. `pnpm format` + `pnpm format:check` available repo-wide. `scripts/check-doc-drift.mjs` verifies the README MCP tool count + e2e test count match the source of truth.
+
+### What's next (queue for the next session)
+
+**Highest-leverage** — the v0.2 security gate implementation per ADR-0013 + ADR-0015 + ADR-0017. Five findings collapse into one coordinated bridge release: F.51 (token), F.07 (versioning), F.52 (persistence token), F.54 (capability scoping), F.58 (secrets module). Estimated 1–2 days bundled. This is the gating item for the v0.2 chat panel + repo connection because both touch user credentials.
+
+**F.18 follow-up bugs (2/4/5)** — return-shape fragility in `add_components`, `delete_nodes` silent-skip schema rev, `fit_artboard` structural-unmeasurability fast-fail. Each is small + scoped + has the test harness ready. Estimated ~1 hour total.
+
+**Tier-2 deferred work** — 9 findings not started in this session, each suitable for a focused follow-up:
+- **Codebase:** F.10 (component dir convention, blocked by Track A/B merge)
+- **Testing:** F.13 (drop CI retries — pending F.21 baseline measurement), F.15 (visual regression), F.22 (coverage reporting in CI)
+- **CI/DX:** F.39 (Changesets adoption — gates F.66 + F.67 + F.70 release workflow)
+- **Deployment:** F.71 (Chrome Web Store submission — manual external)
+- **Observability:** F.83 (Sentry opt-in — before chat panel ships)
+- **Cross-repo:** F.86 (privacy policy on docs site), F.95 Option C (generate MCP tool docs from `tools.ts`) — both belong in `designjs-docs/` repo
+- ADR-0014 (observability stack — Sentry + PostHog adoption) and ADR-0016 (doc-drift remediation) are drafted-when-locked
+
+**Tier 3 + Tier 4** — situational + strategic items per the original review's roll-up; revisit at the next review cadence (~Q4 2026 or after v0.2 ships, whichever sooner).

@@ -1,8 +1,13 @@
 import { test as base, expect, type Page } from "@playwright/test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpTestClient } from "./mcp-client";
+
+// Root package.json declares "type": "module" so this file is loaded as ESM,
+// where __dirname is not defined. Derive it from import.meta.url.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PROJECT_FILE = resolve(__dirname, "../.designjs.json");
 const ARTIFACTS_DIR = resolve(__dirname, "../.e2e-artifacts");

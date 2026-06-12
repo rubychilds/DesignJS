@@ -10,7 +10,8 @@
     "package": "NODE_ENV=production webpack --mode=production && cd dist && zip -r ../designjs-extension.zip .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings 0"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

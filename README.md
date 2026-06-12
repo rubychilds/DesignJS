@@ -196,7 +196,7 @@ Pre-rebrand users may have an `opencanvas` MCP server sitting in `~/.claude.json
 
 ## MCP tools
 
-Twenty-one bidirectional tools, grouped by area. Full input/output schemas in [`packages/bridge/src/tools.ts`](./packages/bridge/src/tools.ts).
+Twenty-two bidirectional tools, grouped by area. Full input/output schemas in [`packages/bridge/src/tools.ts`](./packages/bridge/src/tools.ts).
 
 **Inspect**
 | Tool | Purpose |
@@ -243,6 +243,13 @@ Twenty-one bidirectional tools, grouped by area. Full input/output schemas in [`
 | Webstudio | DOM (real CSS) | None | AGPL-3.0 |
 | **DesignJS** | **HTML/CSS iframe (GrapesJS)** | **Open bidirectional** | **MIT** |
 
+## Documentation
+
+- **User docs:** [designjs.mintlify.app](https://designjs.mintlify.app) — quickstart, integrations, MCP tool reference.
+- **[Architecture Decision Records](./docs/adr/README.md)** — load-bearing decisions, ADR-0001 through ADR-0012.
+- **[Architecture review (2026-05-24)](./docs/architecture/README.md)** — point-in-time deep dives, 100 findings.
+- **[Operational state](./docs/epic-8-followups.md)** — v0.3 Chrome extension followups.
+
 ## Roadmap
 
 ### v0.1 — canvas + MCP foundation *(largely shipped; a few gaps remain)*
@@ -253,7 +260,7 @@ Twenty-one bidirectional tools, grouped by area. Full input/output schemas in [`
 - [x] Save/load to `.designjs.json` — Cmd+S, 30s autosave, reload-restore, git-diffable
 - [x] MCP server (stdio) + WebSocket bridge on `127.0.0.1:29170`, multi-peer routing
 - [x] `designjs init` CLI — auto-detects Claude Code / Cursor / VS Code and writes the right MCP config
-- [x] CI: typecheck, build, smoke tests (bridge round-trip, MCP stdio, init), Playwright E2E (160+ tests across 28 specs)
+- [x] CI: typecheck, build, smoke tests (bridge round-trip, MCP stdio, init), Playwright E2E (156 tests across 37 specs)
 - [x] Repo: MIT, CONTRIBUTING, RELEASING (Changesets), ADR-driven design log
 
 **Multi-frame spatial canvas** *(originally v0.2 — landed early)*
@@ -283,7 +290,7 @@ Twenty-one bidirectional tools, grouped by area. Full input/output schemas in [`
 - [x] Applicability gating — controls grey out (radius on inline text) or hide entirely (auto-layout on text) when not meaningful for the selection
 - [x] Lucide-only iconography, drag-to-scrub number inputs, color field with hex + alpha
 
-**MCP tools** *(21 tools, full list above — all verified via Playwright specs + unit tests)*
+**MCP tools** *(22 tools, full list above — all verified via Playwright specs + unit tests)*
 - [x] Inspect: `ping`, `get_tree`, `get_html`, `get_css`, `get_jsx`, `get_screenshot`, `get_selection`, `get_variables`
 - [x] Mutate: `add_components`, `add_css_rules`, `update_styles`, `add_classes`, `remove_classes`, `set_text`, `set_variables`, `delete_nodes`, `select`, `deselect`
 - [x] Artboards: `create_artboard`, `list_artboards`, `find_placement`, `fit_artboard`

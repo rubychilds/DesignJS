@@ -30,6 +30,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true  # tighten once existing warnings are addressed (F.41)
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+        continue-on-error: false  # fail the build on high-severity advisories
+
       - name: Build @designjs/bridge
         run: pnpm --filter @designjs/bridge build
 
@@ -41,6 +49,9 @@ jobs:
 
       - name: Build all packages
         run: pnpm -r --filter '!@designjs/bridge' build
+
+      - name: Build chrome-extension (production)
+        run: pnpm --filter @designjs/chrome-extension build:prod
 
       - name: Bridge round-trip smoke test
         run: |
@@ -94,8 +105,18 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Playwright E2E
-        run: pnpm test:e2e
+      # F.14 added firefox + webkit projects to playwright.config.ts for the
+      # nightly cross-browser workflow. The PR-gating job here only installs
+      # chromium (see the install step above), so we must scope to chromium
+      # explicitly — otherwise Playwright tries to launch all 3 projects and
+      # 2/3 of the runs fail with "Executable doesn't exist". The cross-browser
+      # nightly at .github/workflows/e2e-cross-browser.yml handles ff + webkit.
+      - name: Playwright E2E (chromium)
+        run: pnpm test:e2e --project chromium
+
+      - name: Retry stats
+        if: always()
+        run: node scripts/playwright-retry-stats.mjs
 
       - name: Upload Playwright report on failure
         if: failure()

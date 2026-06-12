@@ -24,7 +24,14 @@ The following is the exact flow used for `0.1.0-alpha.1`. Follow it verbatim unt
 
 ### 1. Pre-flight
 
-- [ ] CI is green on `main` — both `verify` (typecheck + build + smokes) and `e2e` (Playwright) jobs pass on the commit you intend to publish
+- [ ] CI is green on `main` — `verify` (typecheck + lint + audit + build + smokes), `e2e` (Playwright chromium), and **CodeQL** jobs all pass on the commit you intend to publish
+- [ ] **Cross-browser nightly is green** — last `E2E cross-browser` run (Firefox + WebKit) on `main` passed. Trigger a manual `workflow_dispatch` run if the last scheduled one is stale (more than 2 days old).
+- [ ] Local quality gates pass:
+  - `pnpm typecheck` — all packages
+  - `pnpm lint` — ESLint clean (or remaining warnings acknowledged)
+  - `pnpm format:check` — Prettier clean
+  - `node scripts/check-doc-drift.mjs` — README MCP tool count / e2e test count match `tools.ts` and `e2e/`
+  - `node scripts/check-changelog.mjs` — every published-package version has a `## [<version>]` CHANGELOG heading
 - [ ] Full local E2E suite passes: `pnpm test:e2e`
 - [ ] Bridge + MCP smokes pass: `pnpm smoke:bridge`, `node scripts/smoke-mcp.mjs`, `node scripts/smoke-create.mjs`
 - [ ] [CHANGELOG.md](./CHANGELOG.md) entry drafted for the new version — covers user-facing changes, acks pre-existing bugs fixed, notes breaking changes

@@ -1,4 +1,11 @@
 import type { Editor, Frame } from "grapesjs";
+import {
+  getComponentField,
+  getFrameId,
+  getFrameWrapper,
+  removeFrameFromPage,
+  triggerEditorEvent,
+} from "./grapesjs-types.js";
 
 export type ArtboardCategory =
   | "mobile"
@@ -79,7 +86,7 @@ export const DEFAULT_ARTBOARD_GAP = 80;
 export const ARTBOARDS_CHANGED = "designjs:artboards-changed";
 
 function notifyChange(editor: Editor): void {
-  (editor as unknown as { trigger?: (ev: string) => void }).trigger?.(ARTBOARDS_CHANGED);
+  triggerEditorEvent(editor, ARTBOARDS_CHANGED);
 }
 
 interface FrameData {
@@ -94,15 +101,11 @@ interface FrameData {
 function readFrameData(frame: Frame): FrameData {
   // GrapesJS Frame extends a Backbone-style model: cid is the stable per-
   // session id; id is optional (only set if you save the model server-side).
-  const id =
-    (frame as unknown as { cid?: string }).cid ??
-    (frame as unknown as { id?: string }).id ??
-    "";
   const attrs = (frame as unknown as { attributes?: Record<string, unknown> }).attributes ?? {};
   const getAttr = (key: string): unknown =>
-    (frame as unknown as { get?: (k: string) => unknown }).get?.(key) ?? attrs[key];
+    getComponentField<unknown>(frame, key) ?? attrs[key];
   return {
-    id,
+    id: getFrameId(frame),
     name: String(getAttr("name") ?? "Untitled"),
     x: Number(getAttr("x") ?? 0),
     y: Number(getAttr("y") ?? 0),
@@ -197,12 +200,9 @@ const DEFAULT_FRAME_BODY_STYLE = {
  * made a previously-invisible frame render correctly.
  */
 function applyFrameDimensions(frame: Frame): void {
-  const f = frame as unknown as {
-    get?: (k: string) => unknown;
-  };
-  const width = Number(f.get?.("width") ?? 0);
-  const height = Number(f.get?.("height") ?? 0);
-  const wrapper = f.get?.("component") as
+  const width = Number(getComponentField<unknown>(frame, "width") ?? 0);
+  const height = Number(getComponentField<unknown>(frame, "height") ?? 0);
+  const wrapper = getFrameWrapper(frame) as
     | { addStyle?: (s: Record<string, string>) => void }
     | undefined;
   if (!wrapper || !width || !height) return;
@@ -210,7 +210,7 @@ function applyFrameDimensions(frame: Frame): void {
 }
 
 function applyDefaultFrameStyle(frame: Frame): void {
-  const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component") as
+  const wrapper = getFrameWrapper(frame) as
     | { addStyle?: (s: Record<string, string>) => void }
     | undefined;
   wrapper?.addStyle?.({ ...DEFAULT_FRAME_BODY_STYLE });
@@ -225,10 +225,10 @@ function applyDefaultFrameStyle(frame: Frame): void {
  * with any content are left alone.
  */
 function isScratchFrame(frame: unknown): boolean {
-  const f = frame as { get?: (k: string) => unknown };
-  const name = String(f.get?.("name") ?? "");
+  const f = frame as Frame;
+  const name = String(getComponentField<unknown>(f, "name") ?? "");
   if (name !== "Frame 1") return false;
-  const wrapper = f.get?.("component") as
+  const wrapper = getFrameWrapper(f) as
     | { components?: () => { length?: number } }
     | undefined;
   const children = wrapper?.components?.();
@@ -243,10 +243,7 @@ export function createArtboard(editor: Editor, opts: CreateArtboardOptions): Fra
   const existing = editor.Canvas.getFrames();
   for (const f of existing) {
     if (isScratchFrame(f)) {
-      const page = (editor.Pages as unknown as {
-        getSelected?: () => { getFrames?: () => { remove?: (x: unknown) => void } } | undefined;
-      }).getSelected?.();
-      page?.getFrames?.()?.remove?.(f);
+      removeFrameFromPage(editor, f);
     }
   }
 
@@ -275,16 +272,9 @@ export function createArtboard(editor: Editor, opts: CreateArtboardOptions): Fra
  */
 export function deleteArtboard(editor: Editor, id: string): boolean {
   const frames = editor.Canvas.getFrames();
-  const frame = (frames as unknown as Array<{ cid?: string; id?: string }>).find(
-    (f) => String(f.cid ?? f.id ?? "") === id,
-  );
+  const frame = frames.find((f) => getFrameId(f) === id);
   if (!frame) return false;
-  const page = (editor.Pages as unknown as {
-    getSelected?: () => { getFrames?: () => { remove?: (x: unknown) => void } } | undefined;
-  }).getSelected?.();
-  const collection = page?.getFrames?.();
-  if (!collection?.remove) return false;
-  collection.remove(frame);
+  if (!removeFrameFromPage(editor, frame)) return false;
   notifyChange(editor);
   return true;
 }
@@ -374,11 +364,11 @@ export function moveArtboard(
   opts: { noUndo?: boolean } = {},
 ): { x: number; y: number; snappedX: boolean; snappedY: boolean } | false {
   const frames = editor.Canvas.getFrames();
-  const frame = (frames as unknown as Array<{
-    cid?: string;
-    id?: string;
-    set?: (a: Record<string, unknown>, opts?: Record<string, unknown>) => void;
-  }>).find((f) => String(f.cid ?? f.id ?? "") === id);
+  const frame = frames.find((f) => getFrameId(f) === id) as
+    | (Frame & {
+        set?: (a: Record<string, unknown>, opts?: Record<string, unknown>) => void;
+      })
+    | undefined;
   if (!frame || typeof frame.set !== "function") return false;
 
   const final = snap
@@ -401,9 +391,7 @@ export function moveArtboard(
  */
 export function fitArtboardToContent(editor: Editor, id: string): number | null {
   const frames = editor.Canvas.getFrames();
-  const frame = (frames as unknown as Array<{ cid?: string; id?: string }>).find(
-    (f) => String(f.cid ?? f.id ?? "") === id,
-  );
+  const frame = frames.find((f) => getFrameId(f) === id);
   if (!frame) return null;
 
   // Measure content extent. Body + the wrapper div we've applied explicit
@@ -441,9 +429,9 @@ export function fitArtboardToContent(editor: Editor, id: string): number | null 
     });
   };
   clearHeight(body);
-  const wrapperComponent = (frame as unknown as { get?: (k: string) => unknown }).get?.(
-    "component",
-  ) as { getId?: () => string } | undefined;
+  const wrapperComponent = getFrameWrapper(frame) as
+    | { getId?: () => string }
+    | undefined;
   const wrapperId = wrapperComponent?.getId?.();
   if (wrapperId) {
     const wrapperEl = doc?.getElementById(wrapperId);
@@ -454,9 +442,7 @@ export function fitArtboardToContent(editor: Editor, id: string): number | null 
   for (const fn of restore) fn();
 
   if (contentHeight < 1) return null;
-  const width = Number(
-    (frame as unknown as { get?: (k: string) => unknown }).get?.("width") ?? 0,
-  );
+  const width = Number(getComponentField<unknown>(frame, "width") ?? 0);
   if (!resizeArtboard(editor, id, width, contentHeight)) return null;
   return contentHeight;
 }
@@ -474,11 +460,9 @@ export function resizeArtboard(
   height?: number,
 ): boolean {
   const frames = editor.Canvas.getFrames();
-  const frame = (frames as unknown as Array<{
-    cid?: string;
-    id?: string;
-    set?: (a: Record<string, unknown>) => void;
-  }>).find((f) => String(f.cid ?? f.id ?? "") === id);
+  const frame = frames.find((f) => getFrameId(f) === id) as
+    | (Frame & { set?: (a: Record<string, unknown>) => void })
+    | undefined;
   if (!frame || typeof frame.set !== "function") return false;
   const attrs: Record<string, unknown> = { width };
   if (typeof height === "number") attrs.height = height;
@@ -487,7 +471,7 @@ export function resizeArtboard(
   // infiniteCanvas layout actually updates — without this the frame model
   // updates but the rendered .gjs-frames container stays at old (or zero)
   // height. See applyFrameDimensions docstring for why.
-  applyFrameDimensions(frame as unknown as Frame);
+  applyFrameDimensions(frame);
   notifyChange(editor);
   return true;
 }
@@ -502,12 +486,6 @@ export function resizeArtboard(
 export function getActiveArtboardId(editor: Editor): string | null {
   const frames = editor.Canvas.getFrames();
   if (frames.length === 0) return null;
-  const frameId = (f: unknown): string =>
-    String(
-      (f as { cid?: string; id?: string }).cid ??
-        (f as { cid?: string; id?: string }).id ??
-        "",
-    );
 
   const selected = (editor as unknown as { getSelected?: () => unknown }).getSelected?.();
   if (selected) {
@@ -521,11 +499,10 @@ export function getActiveArtboardId(editor: Editor): string | null {
       node = p as typeof node;
     }
     for (const frame of frames) {
-      const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component");
-      if (wrapper && wrapper === root) return frameId(frame);
+      if (getFrameWrapper(frame) === root) return getFrameId(frame);
     }
   }
-  return frameId(frames[0]);
+  return getFrameId(frames[0]!);
 }
 
 /**
@@ -533,11 +510,9 @@ export function getActiveArtboardId(editor: Editor): string | null {
  */
 export function renameArtboard(editor: Editor, id: string, name: string): boolean {
   const frames = editor.Canvas.getFrames();
-  const frame = (frames as unknown as Array<{
-    cid?: string;
-    id?: string;
-    set?: (a: Record<string, unknown>) => void;
-  }>).find((f) => String(f.cid ?? f.id ?? "") === id);
+  const frame = frames.find((f) => getFrameId(f) === id) as
+    | (Frame & { set?: (a: Record<string, unknown>) => void })
+    | undefined;
   if (!frame || typeof frame.set !== "function") return false;
   frame.set({ name });
   notifyChange(editor);
@@ -560,16 +535,8 @@ export function getFrameIdForComponent(
   component: unknown,
 ): string | null {
   if (!component) return null;
-  const frames = editor.Canvas.getFrames();
-  const frameId = (f: unknown): string =>
-    String(
-      (f as { cid?: string; id?: string }).cid ??
-        (f as { cid?: string; id?: string }).id ??
-        "",
-    );
-  for (const frame of frames) {
-    const wrapper = (frame as unknown as { get?: (k: string) => unknown }).get?.("component");
-    if (wrapper && wrapper === component) return frameId(frame);
+  for (const frame of editor.Canvas.getFrames()) {
+    if (getFrameWrapper(frame) === component) return getFrameId(frame);
   }
   return null;
 }
@@ -634,18 +601,14 @@ export function ensurePageRoot(editor: Editor): void {
   const frames = editor.Canvas.getFrames?.() ?? [];
   if (frames.length === 0) return;
   for (const f of frames) {
-    const wrapper = (f as unknown as { get?: (k: string) => unknown }).get?.(
-      "component",
-    ) as
+    const wrapper = getFrameWrapper(f) as
       | { getAttributes?: () => Record<string, unknown> }
       | undefined;
     const attrs = wrapper?.getAttributes?.() ?? {};
     if (attrs[PAGE_ROOT_ATTR] != null) return;
   }
   const first = frames[0]!;
-  const wrapper = (first as unknown as { get?: (k: string) => unknown }).get?.(
-    "component",
-  ) as
+  const wrapper = getFrameWrapper(first) as
     | { addAttributes?: (a: Record<string, string>) => void }
     | undefined;
   wrapper?.addAttributes?.({ [PAGE_ROOT_ATTR]: "" });
@@ -658,17 +621,13 @@ export function ensureDefaultArtboard(editor: Editor): void {
     return;
   }
   const first = frames[0]!;
-  const mutable = first as unknown as { get?: (k: string) => unknown };
-  const existingName = mutable.get?.("name");
-  const existingWidth = Number(mutable.get?.("width") ?? 0);
-  const existingHeight = Number(mutable.get?.("height") ?? 0);
+  const existingName = getComponentField<unknown>(first, "name");
+  const existingWidth = Number(getComponentField<unknown>(first, "width") ?? 0);
+  const existingHeight = Number(getComponentField<unknown>(first, "height") ?? 0);
   const degenerate = !existingName && (existingWidth < 1 || existingHeight < 1);
   if (!degenerate) return;
 
-  const page = (editor.Pages as unknown as {
-    getSelected?: () => { getFrames?: () => { remove?: (x: unknown) => void } } | undefined;
-  }).getSelected?.();
-  page?.getFrames?.()?.remove?.(first);
+  removeFrameFromPage(editor, first);
   createArtboard(editor, { ...DEFAULT_FIRST_FRAME });
 }
 
@@ -680,16 +639,15 @@ export function ensureDefaultArtboard(editor: Editor): void {
  * Page.getFrames() returns a Backbone collection with .remove on it).
  */
 export function clearAllFrames(editor: Editor): void {
-  const page = (editor.Pages as unknown as {
-    getSelected?: () => { getFrames?: () => { remove?: (x: unknown) => void } } | undefined;
-  }).getSelected?.();
-  const collection = page?.getFrames?.();
   const frames = editor.Canvas.getFrames();
-  if (frames.length === 0 || !collection?.remove) return;
+  if (frames.length === 0) return;
   // Iterate a snapshot — Backbone collections mutate under you otherwise.
   const snapshot = [...frames];
-  for (const frame of snapshot) collection.remove(frame);
-  notifyChange(editor);
+  let removedAny = false;
+  for (const frame of snapshot) {
+    if (removeFrameFromPage(editor, frame)) removedAny = true;
+  }
+  if (removedAny) notifyChange(editor);
 }
 
 /**
@@ -717,12 +675,11 @@ export function healFrameDimensions(editor: Editor): number {
   let healed = 0;
   for (const f of frames) {
     const m = f as unknown as {
-      get?: (k: string) => unknown;
       set?: (a: Record<string, unknown>) => void;
       view?: { frame?: { el?: HTMLIFrameElement }; el?: HTMLIFrameElement };
     };
-    const currentW = m.get?.("width");
-    const currentH = m.get?.("height");
+    const currentW = getComponentField<unknown>(f, "width");
+    const currentH = getComponentField<unknown>(f, "height");
     const needsW = !currentW || currentW === "" || Number(currentW) === 0;
     const needsH = !currentH || currentH === "" || Number(currentH) === 0;
     if (!needsW && !needsH) continue;
@@ -739,7 +696,7 @@ export function healFrameDimensions(editor: Editor): number {
     if (needsW) next.width = measuredW;
     if (needsH) next.height = measuredH;
     m.set?.(next);
-    applyFrameDimensions(f as Frame);
+    applyFrameDimensions(f);
     healed += 1;
   }
   if (healed > 0) notifyChange(editor);

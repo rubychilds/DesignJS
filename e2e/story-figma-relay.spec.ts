@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "./fixtures";
+
+// ESM scope — __dirname is not defined; derive from import.meta.url.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface ComponentNode {
   id: string;

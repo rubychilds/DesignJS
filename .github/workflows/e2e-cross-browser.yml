@@ -1,0 +1,86 @@
+name: E2E cross-browser
+
+# Nightly cross-browser run. Catches Firefox + WebKit regressions that the
+# default `verify` + `e2e` jobs (chromium only) don't surface. See F.14 in
+# docs/architecture/architecture-testing.md.
+#
+# Excluded from the default per-PR e2e job because the chromium suite is
+# already serial (workers: 1, fullyParallel: false) and adding two more
+# browsers would push wall-clock over the 15-min budget. Manual `workflow_dispatch`
+# is available for one-off cross-browser checks before merging risky changes.
+
+on:
+  schedule:
+    # Daily at 02:30 UTC — well after the busy CI windows in US + EU
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: "Browser to test (firefox / webkit / both)"
+        required: false
+        default: "both"
+        type: choice
+        options:
+          - both
+          - firefox
+          - webkit
+
+concurrency:
+  group: e2e-cross-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser:
+          - firefox
+          - webkit
+    # Skip matrix entries the user didn't ask for on manual dispatch
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.browser == 'both' ||
+      github.event.inputs.browser == matrix.browser
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @designjs/bridge
+        run: pnpm --filter @designjs/bridge build
+
+      - name: Build all packages
+        run: pnpm -r --filter '!@designjs/bridge' build
+
+      - name: Install Playwright browser (${{ matrix.browser }})
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Playwright E2E (${{ matrix.browser }})
+        run: pnpm test:e2e --project ${{ matrix.browser }}
+
+      - name: Retry stats
+        if: always()
+        run: node scripts/playwright-retry-stats.mjs
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

@@ -209,44 +209,49 @@ export function App() {
       }
     }, 300);
 
-    (window as unknown as { __designjs?: unknown }).__designjs = {
-      editor,
-      addHtml: (html: string) => {
-        // Multi-frame: editor.addComponents lands the component in a detached
-        // tree with no iframe mount. Route into the first frame's wrapper so
-        // test/dev helpers that drive addHtml actually produce rendered DOM.
-        const firstFrame = editor.Canvas.getFrames()[0];
-        const wrapper = (firstFrame as unknown as { get?: (k: string) => unknown })?.get?.(
-          "component",
-        ) as { append?: (h: string) => unknown } | undefined;
-        return wrapper?.append ? wrapper.append(html) : editor.addComponents(html);
-      },
-      getHtml: () => editor.getHtml(),
-      getProjectData: () => editor.getProjectData(),
-      save: () =>
-        saveProject({
-          ...(editor.getProjectData() as Record<string, unknown>),
-          tokens: getTokenTree(),
-        }),
-      load: async () => {
-        const data = await loadProject();
-        if (data) {
-          const { tokens, cssVariables, ...projectData } = data as {
-            tokens?: TokenTree;
-            cssVariables?: Record<string, string>;
-            [k: string]: unknown;
-          };
-          editor.loadProjectData(projectData);
-          applyTokenStateFromSaved(editor, tokens, cssVariables);
-        }
-        return data;
-      },
-      clear: () => editor.Components.clear(),
-      paste: (html: string) => importPastedHtml(editor, html),
-      getVariables: () => getVariables(),
-      setVariables: (vars: Record<string, string>) => setVariables(editor, vars),
-    };
-    window.dispatchEvent(new CustomEvent("designjs:ready"));
+    // Gate the editor handle behind import.meta.env.DEV so production builds
+    // don't expose internal editor APIs to arbitrary page scripts. Vite sets
+    // DEV to true under `pnpm dev` (Playwright's webServer); false under build.
+    if (import.meta.env.DEV) {
+      (window as unknown as { __designjs?: unknown }).__designjs = {
+        editor,
+        addHtml: (html: string) => {
+          // Multi-frame: editor.addComponents lands the component in a detached
+          // tree with no iframe mount. Route into the first frame's wrapper so
+          // test/dev helpers that drive addHtml actually produce rendered DOM.
+          const firstFrame = editor.Canvas.getFrames()[0];
+          const wrapper = (firstFrame as unknown as { get?: (k: string) => unknown })?.get?.(
+            "component",
+          ) as { append?: (h: string) => unknown } | undefined;
+          return wrapper?.append ? wrapper.append(html) : editor.addComponents(html);
+        },
+        getHtml: () => editor.getHtml(),
+        getProjectData: () => editor.getProjectData(),
+        save: () =>
+          saveProject({
+            ...(editor.getProjectData() as Record<string, unknown>),
+            tokens: getTokenTree(),
+          }),
+        load: async () => {
+          const data = await loadProject();
+          if (data) {
+            const { tokens, cssVariables, ...projectData } = data as {
+              tokens?: TokenTree;
+              cssVariables?: Record<string, string>;
+              [k: string]: unknown;
+            };
+            editor.loadProjectData(projectData);
+            applyTokenStateFromSaved(editor, tokens, cssVariables);
+          }
+          return data;
+        },
+        clear: () => editor.Components.clear(),
+        paste: (html: string) => importPastedHtml(editor, html),
+        getVariables: () => getVariables(),
+        setVariables: (vars: Record<string, string>) => setVariables(editor, vars),
+      };
+      window.dispatchEvent(new CustomEvent("designjs:ready"));
+    }
 
     editor.Keymaps.add("oc:duplicate", "ctrl+d,command+d", () => {
       editor.runCommand("core:copy");

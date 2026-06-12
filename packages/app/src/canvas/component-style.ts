@@ -1,4 +1,5 @@
 import type { Component } from "grapesjs";
+import { getComponentEl } from "./grapesjs-types.js";
 
 /**
  * Read/write helpers that normalize GrapesJS's per-component style access so
@@ -34,7 +35,7 @@ export function writeStyle(
  * Returns empty string when the component isn't rendered yet.
  */
 export function readComputedStyle(component: Component, key: string): string {
-  const el = componentEl(component);
+  const el = getComponentEl(component);
   if (!el) return "";
   const view = el.ownerDocument?.defaultView;
   if (!view) return "";
@@ -55,7 +56,7 @@ export function readComputedStyle(component: Component, key: string): string {
 export function readBoundingBox(
   component: Component,
 ): { x: number; y: number; width: number; height: number } | null {
-  const el = componentEl(component) as HTMLElement | null;
+  const el = getComponentEl(component) as HTMLElement | null;
   if (!el || typeof el.offsetLeft !== "number") return null;
   return {
     x: el.offsetLeft,
@@ -87,15 +88,6 @@ export function readEffectiveStyle(component: Component, key: string): string {
   const set = readStyle(component, key);
   if (set) return set;
   return readComputedStyle(component, key);
-}
-
-// component.getEl() returns null under GrapesJS v2's multi-frame layout; the
-// primary view holds the rendered element reference instead.
-function componentEl(component: Component): Element | null | undefined {
-  return (
-    (component as unknown as { view?: { el?: Element } }).view?.el ??
-    (component as unknown as { getEl?: () => Element | null | undefined }).getEl?.()
-  );
 }
 
 /**

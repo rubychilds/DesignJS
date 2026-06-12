@@ -254,9 +254,11 @@ describe("captureFullPagePixels", () => {
     return settled!;
   }
 
-  function makeCompositorStubs() {
+  function _makeCompositorStubs() {
     // Replaces real canvas / Image with no-ops so compositeTiles can
-    // run under jsdom.
+    // run under jsdom. Prefixed `_` to signal intentionally unused —
+    // tests currently use the monkey-patch approach described below;
+    // keep this helper for future tests that want injected deps.
     const fakeCanvas = {
       width: 0,
       height: 0,

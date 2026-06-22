@@ -46,7 +46,7 @@ jobs:
       github.event.inputs.browser == 'both' ||
       github.event.inputs.browser == matrix.browser
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Enable corepack
         run: corepack enable
